@@ -52,8 +52,11 @@ if __name__ == '__main__':
     parser.add_argument('--masks_dir', default="")
     parser.add_argument('--depths_dir', default="")
     parser.add_argument('--chunks_dir', default="")
-    parser.add_argument("--chunks_iterations", type=int, default=30_000)
     parser.add_argument("--course_iterations", type=int, default=30_000)
+    parser.add_argument("--chunks_iterations", type=int, default=30_000)
+    parser.add_argument("--chunks_post_iterations", type=int, default=15_000)
+    parser.add_argument('--skip_merge', action="store_true", default=False)
+    parser.add_argument('--disable_viewer', action='store_true', default=False)
     parser.add_argument('--output_dir', default="")
     parser.add_argument('--use_slurm', action="store_true", default=False)
     parser.add_argument('--skip_if_exists', action="store_true", default=False, help="Skip training a chunk if it already has a hierarchy")
@@ -133,6 +136,8 @@ if __name__ == '__main__':
         f"--scaffold_file {output_dir}/scaffold/point_cloud/iteration_{args.course_iterations}",
         "--skybox_locked" 
     ])
+    if args.disable_viewer:
+        train_chunk_args += " --disable_viewer"
     if masks_dir != "":
         train_chunk_args += " --alpha_masks " + masks_dir
     if args.extra_training_args != "": 
@@ -143,7 +148,7 @@ if __name__ == '__main__':
 
     post_opt_chunk_args =  " ".join([
         "python", "-u train_post.py",
-        f"--iterations {args.chunks_iterations // 2}",
+        f"--iterations {args.chunks_post_iterations}",
         "--feature_lr 0.0005",
         "--opacity_lr 0.01",
         "--scaling_lr 0.001",
@@ -151,6 +156,8 @@ if __name__ == '__main__':
         f"-i {images_dir}", 
         f"--scaffold_file {output_dir}/scaffold/point_cloud/iteration_{args.course_iterations}",
     ])
+    if args.disable_viewer:
+        post_opt_chunk_args += " --disable_viewer"
     if masks_dir != "":
         post_opt_chunk_args += " --alpha_masks " + masks_dir
     if args.extra_training_args != "": 
@@ -162,9 +169,13 @@ if __name__ == '__main__':
         source_chunk = os.path.join(chunks_dir, chunk_name)
         trained_chunk = os.path.join(output_dir, "trained_chunks", chunk_name)
 
-        if args.skip_if_exists and os.path.exists(os.path.join(trained_chunk, "hierarchy.hier_opt")):
+        file_hier_opt = os.path.join(trained_chunk, "hierarchy.hier_opt")
+        if args.skip_if_exists and os.path.exists(file_hier_opt):
             print(f"Skipping {chunk_name}")
         else:
+            # create empty file for positioning
+            Path(trained_chunk).mkdir(parents=True, exist_ok=True)
+            Path(file_hier_opt).touch()
             ## Training can be done in parallel using slurm.
             if args.use_slurm:
                 job_id = submit_job(slurm_args + [
@@ -241,6 +252,10 @@ if __name__ == '__main__':
 
     end_time = time.time()
     print(f"Successfully trained in {(end_time - start_time)/60.0} minutes.")
+
+    if args.skip_merge:
+        print(f"Skip Gaussian Hierarchy Merger, exit.")
+        sys.exit(0)
 
     ## Consolidation to create final hierarchy
     hierarchy_merger_path = "submodules/gaussianhierarchy/build/Release/GaussianHierarchyMerger.exe" if os_name == "Windows" else "submodules/gaussianhierarchy/build/GaussianHierarchyMerger"
