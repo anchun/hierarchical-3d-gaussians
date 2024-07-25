@@ -52,7 +52,8 @@ if __name__ == '__main__':
     parser.add_argument('--masks_dir', default="")
     parser.add_argument('--depths_dir', default="")
     parser.add_argument('--chunks_dir', default="")
-    
+    parser.add_argument("--chunks_iterations", type=int, default=30_000)
+    parser.add_argument("--course_iterations", type=int, default=30_000)
     parser.add_argument('--output_dir', default="")
     parser.add_argument('--use_slurm', action="store_true", default=False)
     parser.add_argument('--skip_if_exists', action="store_true", default=False, help="Skip training a chunk if it already has a hierarchy")
@@ -76,7 +77,7 @@ if __name__ == '__main__':
         os.makedirs(os.path.join(output_dir, "trained_chunks"))
   
     ## First step is coarse optimization to generate a scaffold that will be used later.
-    if args.skip_if_exists and os.path.exists(os.path.join(output_dir, "scaffold/point_cloud/iteration_30000/point_cloud.ply")):
+    if args.skip_if_exists and os.path.exists(os.path.join(output_dir, f"scaffold/point_cloud/iteration_{args.course_iterations}/point_cloud.ply")):
         print("Skipping coarse")
     else:
         if args.use_slurm:
@@ -126,8 +127,10 @@ if __name__ == '__main__':
     train_chunk_args =  " ".join([
         "python", "-u train_single.py",
         "--save_iterations -1",
-        f"-i {images_dir}", f"-d {depths_dir}",
-        f"--scaffold_file {output_dir}/scaffold/point_cloud/iteration_30000",
+        f"--iterations {args.chunks_iterations}",
+        f"-i {images_dir}", 
+        f"-d {depths_dir}",
+        f"--scaffold_file {output_dir}/scaffold/point_cloud/iteration_{args.course_iterations}",
         "--skybox_locked" 
     ])
     if masks_dir != "":
@@ -140,9 +143,13 @@ if __name__ == '__main__':
 
     post_opt_chunk_args =  " ".join([
         "python", "-u train_post.py",
-        "--iterations 15000", "--feature_lr 0.0005",
-        "--opacity_lr 0.01", "--scaling_lr 0.001", "--save_iterations -1",
-        f"-i {images_dir}",  f"--scaffold_file {output_dir}/scaffold/point_cloud/iteration_30000",
+        f"--iterations {args.chunks_iterations // 2}",
+        "--feature_lr 0.0005",
+        "--opacity_lr 0.01",
+        "--scaling_lr 0.001",
+        "--save_iterations -1",
+        f"-i {images_dir}", 
+        f"--scaffold_file {output_dir}/scaffold/point_cloud/iteration_{args.course_iterations}",
     ])
     if masks_dir != "":
         post_opt_chunk_args += " --alpha_masks " + masks_dir
@@ -186,10 +193,10 @@ if __name__ == '__main__':
             try:
                 subprocess.run(
                 hierarchy_creator_args + " ".join([
-                        os.path.join(trained_chunk, "point_cloud/iteration_30000/point_cloud.ply"),
+                        os.path.join(trained_chunk, f"point_cloud/iteration_{args.chunks_iterations}/point_cloud.ply"),
                         source_chunk,
                         trained_chunk,
-                        os.path.join(output_dir, "scaffold/point_cloud/iteration_30000")
+                        os.path.join(output_dir, f"scaffold/point_cloud/iteration_{args.course_iterations}")
                     ]),
                     shell=True, check=True, text=True
                 )
@@ -245,7 +252,7 @@ if __name__ == '__main__':
     ]
   
     consolidation_args = consolidation_args + chunk_names
-    print(f"Consolidation...")
+    print(f"Consolidation... {consolidation_args}")
     if args.use_slurm:
         consolidation = submit_job(slurm_args + [
                 f"--error={output_dir}/consolidation_log.err", f"--output={output_dir}/consolidation_log.out",
