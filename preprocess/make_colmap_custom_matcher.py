@@ -53,7 +53,7 @@ def find_images_names(root_dir):
     for dirpath, dirnames, filenames in os.walk(root_dir):
 
         # Filter for image files (you can add more extensions if needed), sort images
-        image_files = sorted([f for f in filenames if f.lower().endswith(('.png', '.jpg', '.JPG', '.PNG'))])
+        image_files = sorted([f for f in filenames if f.lower().endswith(('.png', '.jpg', '.jpeg', '.JPG', '.PNG'))])
 
         # If there are image files in the current directory, add them to the list
         if image_files:

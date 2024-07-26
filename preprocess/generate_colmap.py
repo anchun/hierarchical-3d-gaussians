@@ -26,7 +26,7 @@ def replace_images_by_masks(images_file, out_file):
             qvec=in_image_meta.qvec,
             tvec=in_image_meta.tvec,
             camera_id=in_image_meta.camera_id,
-            name=in_image_meta.name[:-3]+"png",
+            name=os.path.splitext(in_image_meta.name)[0]+".png",
             xys=in_image_meta.xys,
             point3D_ids=in_image_meta.point3D_ids,
         )
