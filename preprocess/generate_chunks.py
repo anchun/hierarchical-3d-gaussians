@@ -161,6 +161,11 @@ if __name__ == '__main__':
         print(f"Error executing concat_chunks_info.sh: {e}")
         sys.exit(1)
 
+    # remove non-needed raw_chunks.
+    import shutil
+    shutil.rmtree(os.path.join(chunks_dir, "raw_chunks"))
+    print(f'raw_chunks folder has been deleted.')
+
     end_time = time.time()
     print(f"chunks successfully prepared in {(end_time - start_time)/60.0} minutes.")
 
