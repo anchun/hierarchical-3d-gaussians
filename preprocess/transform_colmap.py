@@ -169,8 +169,8 @@ if __name__ == '__main__':
 
     write_points3D_binary(points_out, f"{out_colmap}/points3D.bin")    
 
-    shutil.copy(f"{args.new_colmap_dir}/sparse/0/cameras.bin", f"{out_colmap}/cameras.bin")
-    shutil.copy(f"{args.in_dir}/center.txt", f"{args.out_dir}/center.txt")
-    shutil.copy(f"{args.in_dir}/extent.txt", f"{args.out_dir}/extent.txt")
+    shutil.copyfile(f"{args.new_colmap_dir}/sparse/0/cameras.bin", f"{out_colmap}/cameras.bin")
+    shutil.copyfile(f"{args.in_dir}/center.txt", f"{args.out_dir}/center.txt")
+    shutil.copyfile(f"{args.in_dir}/extent.txt", f"{args.out_dir}/extent.txt")
 
     print(0)

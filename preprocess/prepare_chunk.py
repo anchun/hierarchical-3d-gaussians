@@ -54,7 +54,7 @@ if __name__ == '__main__':
         print(f"Error executing custom matcher distance: {e}")
         sys.exit(1)
     
-    shutil.copy(os.path.join(args.raw_chunk, "sparse", "0", f"matching_{matching_nb}.txt"), os.path.join(bundle_adj_chunk, f"matching_{matching_nb}.txt"))
+    shutil.copyfile(os.path.join(args.raw_chunk, "sparse", "0", f"matching_{matching_nb}.txt"), os.path.join(bundle_adj_chunk, f"matching_{matching_nb}.txt"))
 
     ## Extracting the subset of images corresponding to that chunk
     print(f"undistorting to chunk {bundle_adj_chunk}...")
@@ -103,8 +103,8 @@ if __name__ == '__main__':
     os.makedirs(os.path.join(bundle_adj_chunk, "sparse", "t2"))
     os.makedirs(os.path.join(bundle_adj_chunk, "sparse", "0"))
     
-    shutil.copy(os.path.join(args.raw_chunk, "sparse", "0", "images.bin"), os.path.join(bundle_adj_chunk, "sparse", "o", "images.bin"))
-    shutil.copy(os.path.join(args.raw_chunk, "sparse", "0", "cameras.bin"), os.path.join(bundle_adj_chunk, "sparse", "o", "cameras.bin"))
+    shutil.copyfile(os.path.join(args.raw_chunk, "sparse", "0", "images.bin"), os.path.join(bundle_adj_chunk, "sparse", "o", "images.bin"))
+    shutil.copyfile(os.path.join(args.raw_chunk, "sparse", "0", "cameras.bin"), os.path.join(bundle_adj_chunk, "sparse", "o", "cameras.bin"))
     
     # points3D.bin shouldnt be completely empty (must have 1 BYTE)
     write_points3D_binary({}, os.path.join(bundle_adj_chunk, "sparse", "o", "points3D.bin")) 

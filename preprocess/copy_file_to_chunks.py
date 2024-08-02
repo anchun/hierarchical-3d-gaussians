@@ -11,4 +11,4 @@ args = parser.parse_args()
 chunks = os.listdir(args.chunks_path)
 
 for chunk in chunks:
-    shutil.copy(args.file_path, os.path.join(args.chunks_path, chunk, args.out_subdir))
+    shutil.copyfile(args.file_path, os.path.join(args.chunks_path, chunk, args.out_subdir))
