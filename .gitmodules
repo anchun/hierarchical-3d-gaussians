@@ -10,7 +10,7 @@
 	url = https://gitlab.inria.fr/bkerbl/simple-knn.git
 [submodule "submodules/gaussianhierarchy"]
 	path = submodules/gaussianhierarchy
-	url = https://github.com/graphdeco-inria/gaussian-hierarchy.git
+	url = https://github.com/anchun/gaussian-hierarchy.git
 [submodule "submodules/Depth-Anything-V2"]
 	path = submodules/Depth-Anything-V2
 	url = https://github.com/DepthAnything/Depth-Anything-V2.git
