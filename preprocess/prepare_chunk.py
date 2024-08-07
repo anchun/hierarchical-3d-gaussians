@@ -71,11 +71,27 @@ if __name__ == '__main__':
         print(f"Error executing image_undistorter: {e}")
         sys.exit(1)
 
-    print("extracting features...")
+    print("extracting features with masks...")
+    for root, dirs, files in os.walk(os.path.join(bundle_adj_chunk, "images")):
+        camera_name = os.path.basename(os.path.normpath(root))
+        src_mask_folder = os.path.join(args.images_dir, "../masks", camera_name)
+        if os.path.exists(src_mask_folder):
+            dst_mask_folder = os.path.join(bundle_adj_chunk, "masks", camera_name)
+            try:
+                if not os.path.exists(dst_mask_folder):
+                    os.makedirs(dst_mask_folder)
+                for file in files:
+                    shutil.copyfile(os.path.join(src_mask_folder, os.path.splitext(file)[0] + ".png"), os.path.join(dst_mask_folder, file + ".png"))
+            except e:
+                print(f"Error executing copying masks: {e}")
+        else:
+            print(f"Mask path doesn't exists: {src_mask_folder}")
+
     colmap_feature_extractor_args = [
         colmap_exe, "feature_extractor",
         "--database_path", f"{bundle_adj_chunk}/database.db",
         "--image_path", f"{bundle_adj_chunk}/images",
+        "--ImageReader.mask_path", f"{bundle_adj_chunk}/masks",
         "--ImageReader.existing_camera_id", "1",
         ]
     
@@ -111,7 +127,7 @@ if __name__ == '__main__':
 
     if args.skip_bundle_adjustment:
         subprocess.run([colmap_exe, "point_triangulator",
-            "--Mapper.ba_global_max_num_iterations", "5",
+            "--Mapper.ba_global_max_num_iterations", "200",
             "--Mapper.ba_global_max_refinements", "1", 
             "--database_path", f"{bundle_adj_chunk}/database.db",
             "--image_path", f"{bundle_adj_chunk}/images",
@@ -122,8 +138,8 @@ if __name__ == '__main__':
         colmap_point_triangulator_args = [
             colmap_exe, "point_triangulator",
             "--Mapper.ba_global_function_tolerance", "0.000001",
-            "--Mapper.ba_global_max_num_iterations", "30",
-            "--Mapper.ba_global_max_refinements", "3",
+            "--Mapper.ba_global_max_num_iterations", "200",
+            "--Mapper.ba_global_max_refinements", "10",
             ]
 
         colmap_bundle_adjuster_args = [
@@ -131,7 +147,7 @@ if __name__ == '__main__':
             "--BundleAdjustment.refine_extra_params", "0",
             "--BundleAdjustment.function_tolerance", "0.000001",
             "--BundleAdjustment.max_linear_solver_iterations", "100",
-            "--BundleAdjustment.max_num_iterations", "50", 
+            "--BundleAdjustment.max_num_iterations", "400", 
             "--BundleAdjustment.refine_focal_length", "0"
             ]
         # 2 rounds of triangulation + bundle adjustment

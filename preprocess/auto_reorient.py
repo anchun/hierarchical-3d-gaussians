@@ -88,7 +88,14 @@ if __name__ == '__main__':
 
     # Read colmap cameras, images and points
     start_time = time.time()
-    cameras, images_metas_in, points3d_in = read_model(args.input_path, ext=f".{args.model_type}")
+    cameras, images_metas, points3d_in = read_model(args.input_path, ext=f".{args.model_type}")
+    # validate the input image and skip the images not found
+    image_root_path = os.path.join(args.input_path, "../images")
+    images_metas_in = {}
+    for key in images_metas:
+        image_meta = images_metas[key]
+        if os.path.exists(os.path.join(image_root_path, image_meta.name)):
+            images_metas_in[key] = image_meta
     end_time = time.time()
     print(f"{len(images_metas_in)} images read in {end_time - start_time} seconds.")
 

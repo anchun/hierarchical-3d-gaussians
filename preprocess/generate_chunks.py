@@ -46,8 +46,10 @@ if __name__ == '__main__':
     parser.add_argument('--images_dir', default="")
     parser.add_argument('--global_colmap_dir', default="")
     parser.add_argument('--chunks_dir', default="")
+    parser.add_argument('--chunk_size', default=100, type=float)
     parser.add_argument('--use_slurm', action="store_true", default=False)
     parser.add_argument('--skip_bundle_adjustment', action="store_true", default=False)
+    parser.add_argument('--keep_raw_chunks', action="store_true", default=False)
     parser.add_argument('--n_jobs', type=int, default=8, help="Run per chunk COLMAP in parallel on the same machine. Does not handle multi GPU systems. --use_slurm overrides this.")
     args = parser.parse_args()
     
@@ -72,6 +74,7 @@ if __name__ == '__main__':
             "python", f"preprocess/make_chunk.py",
             "--base_dir", os.path.join(colmap_dir, "sparse", "0"),
             "--images_dir", f"{images_dir}",
+            "--chunk_size", f"{args.chunk_size}",
             "--output_path", f"{chunks_dir}/raw_chunks",
         ]
     try:
@@ -161,10 +164,11 @@ if __name__ == '__main__':
         print(f"Error executing concat_chunks_info.sh: {e}")
         sys.exit(1)
 
-    # remove non-needed raw_chunks.
-    import shutil
-    shutil.rmtree(os.path.join(chunks_dir, "raw_chunks"))
-    print(f'raw_chunks folder has been deleted.')
+    # remove non-needed raw_chunks if needed.
+    if not args.keep_raw_chunks:
+        import shutil
+        shutil.rmtree(os.path.join(chunks_dir, "raw_chunks"))
+        print(f'raw_chunks folder has been deleted.')
 
     end_time = time.time()
     print(f"chunks successfully prepared in {(end_time - start_time)/60.0} minutes.")

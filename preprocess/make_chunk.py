@@ -32,13 +32,13 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--base_dir', required=True)
     parser.add_argument('--images_dir', required=True)
-    parser.add_argument('--chunk_size', default=150, type=float)
+    parser.add_argument('--chunk_size', default=100, type=float)
     parser.add_argument('--min_padd', default=0.2, type=float)
-    parser.add_argument('--lapla_thresh', default=1, type=float, help="Discard images if their laplacians are < mean - lapla_thresh * std") # 1
+    parser.add_argument('--lapla_thresh', default=-1, type=float, help="Discard images if their laplacians are < mean - lapla_thresh * std") # 1
     parser.add_argument('--min_n_cams', default=100, type=int) # 100
     parser.add_argument('--max_n_cams', default=1500, type=int) # 1500
     parser.add_argument('--output_path', required=True)
-    parser.add_argument('--add_far_cams', default=True)
+    parser.add_argument('--add_far_cams', default=False)
     parser.add_argument('--model_type', default="bin")
 
     args = parser.parse_args()
