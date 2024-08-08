@@ -267,9 +267,11 @@ if __name__ == '__main__':
     hierarchy_merger_path = os.path.join(f_path.parent.parent, hierarchy_merger_path)
 
     if args.writing_ply:
+        point_cloud_dir = os.path.join(output_dir, "point_cloud", f"iteration_{args.chunks_iterations + args.chunks_post_iterations}")
+        os.makedirs(point_cloud_dir, exist_ok=True)
         writing_ply_args = [
             hierarchy_merger_path, f"{output_dir}/trained_chunks",
-            "0", chunks_dir, f"{output_dir}/point_cloud.ply" 
+            "0", chunks_dir, f"{point_cloud_dir}/point_cloud.ply" 
         ]
     
         writing_ply_args = writing_ply_args + chunk_names
