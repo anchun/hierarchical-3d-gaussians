@@ -79,8 +79,7 @@ sudo apt install -y cmake libglew-dev libassimp-dev libboost-all-dev libgtk-3-de
 Clone the hierarchy viewer and build:
 ```
 cd SIBR_viewers
-git clone https://github.com/graphdeco-inria/hierarchy-viewer.git src/projects/hierarchyviewer
-cmake . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_IBR_HIERARCHYVIEWER=ON -DBUILD_IBR_ULR=OFF -DBUILD_IBR_DATASET_TOOLS=OFF -DBUILD_IBR_GAUSSIANVIEWER=OFF 
+cmake . -B build -DCMAKE_BUILD_TYPE=Release -DBUILD_IBR_HIERARCHYVIEWER=ON -DBUILD_IBR_ULR=OFF -DBUILD_IBR_DATASET_TOOLS=OFF -DBUILD_IBR_GAUSSIANVIEWER=ON 
 cmake --build build -j --target install --config Release
 ```
 

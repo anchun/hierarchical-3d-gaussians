@@ -1,10 +1,10 @@
 [submodule "SIBR_viewers"]
 	path = SIBR_viewers
-	url = https://gitlab.inria.fr/sibr/sibr_core.git
+	url = https://github.com/anchun/SIBR_viewers.git
 	branch = gaussian_code_release_hierarchy
 [submodule "submodules/hierarchy-rasterizer"]
 	path = submodules/hierarchy-rasterizer
-	url = https://github.com/graphdeco-inria/hierarchy-rasterizer.git
+	url = https://github.com/anchun/hierarchy-rasterizer.git
 [submodule "submodules/simple-knn"]
 	path = submodules/simple-knn
 	url = https://gitlab.inria.fr/bkerbl/simple-knn.git
