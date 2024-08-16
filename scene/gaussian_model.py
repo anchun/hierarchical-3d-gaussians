@@ -239,8 +239,12 @@ class GaussianModel:
             xyz = torch.concat((scaffold_xyz.cuda()[selec], xyz))
             features_dc = torch.concat((features_dc_scaffold.cuda()[selec,0:1,:], features_dc))
 
-            filler = torch.zeros((features_extra_scaffold.cuda()[selec,:,:].size(0), 3 if self.max_sh_degree == 1 else 15, 3))
-            filler[:,0:3,:] = features_extra_scaffold.cuda()[selec,:,:]
+            rest_dim = 3 if self.max_sh_degree == 1 else 15
+            if self.max_sh_degree > 0:
+                filler = torch.zeros((features_extra_scaffold.cuda()[selec,:,:].size(0), rest_dim, 3))
+                filler[:,0:3,:] = features_extra_scaffold.cuda()[selec,:,:]
+            else:
+                filler = torch.zeros((features_extra_scaffold.cuda()[selec,:,:].size(0), 0, 3))
             features_rest = torch.concat((filler.cuda(), features_rest))
             scales = torch.concat((scales_scaffold.cuda()[selec], scales))
             rots = torch.concat((rots_scaffold.cuda()[selec], rots))

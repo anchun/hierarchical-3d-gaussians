@@ -57,7 +57,7 @@ if __name__ == '__main__':
     parser.add_argument("--chunks_post_iterations", type=int, default=15_000)
     parser.add_argument('--skip_merge', action="store_true", default=False)
     parser.add_argument('--writing_ply', action="store_true", default=True)
-    parser.add_argument('--disable_viewer', action='store_true', default=False)
+    parser.add_argument('--disable_viewer', action='store_true', default=True)
     parser.add_argument('--output_dir', default="")
     parser.add_argument('--use_slurm', action="store_true", default=False)
     parser.add_argument('--skip_if_exists', action="store_true", default=False, help="Skip training a chunk if it already has a hierarchy")
