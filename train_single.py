@@ -150,7 +150,7 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
                         if iteration > opt.densify_from_iter and iteration % opt.densification_interval == 0:
                             gaussians.densify_and_prune(opt.densify_grad_threshold, 0.005, scene.cameras_extent)
                         
-                        if iteration % opt.opacity_reset_interval == 0 or (dataset.white_background and iteration == opt.densify_from_iter):
+                        if iteration % opt.opacity_reset_interval == 0:
                             print("-----------------RESET OPACITY!-------------")
                             gaussians.reset_opacity()
 
