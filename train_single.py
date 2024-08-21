@@ -222,6 +222,9 @@ if __name__ == "__main__":
     parser.add_argument("--start_checkpoint", type=str, default = None)
     args = parser.parse_args(sys.argv[1:])
     args.save_iterations.append(args.iterations)
+    # default densify for half iterations.
+    args.densify_until_iter = args.iterations / 2
+    print("Iterations: ", args.iterations, "Densify iterations: ", args.densify_until_iter)
     
     print("Optimizing " + args.model_path)
 
