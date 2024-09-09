@@ -173,11 +173,16 @@ if __name__ == '__main__':
 
         file_hier_opt = os.path.join(trained_chunk, "hierarchy.hier_opt")
         if args.skip_if_exists and os.path.exists(file_hier_opt):
-            print(f"Skipping {chunk_name}")
+            print(f"Skipping {chunk_name} as {file_hier_opt} exists.")
+            continue
+        # create empty file for positioning
+        Path(trained_chunk).mkdir(parents=True, exist_ok=True)
+        Path(file_hier_opt).touch()
+
+        file_hier = os.path.join(trained_chunk, "hierarchy.hier")
+        if args.skip_if_exists and os.path.exists(file_hier):
+            print(f"Skipping train_single for {chunk_name} as {file_hier} exists.")
         else:
-            # create empty file for positioning
-            Path(trained_chunk).mkdir(parents=True, exist_ok=True)
-            Path(file_hier_opt).touch()
             ## Training can be done in parallel using slurm.
             if args.use_slurm:
                 job_id = submit_job(slurm_args + [
@@ -218,20 +223,20 @@ if __name__ == '__main__':
                 print(f"Error executing hierarchy_creator: {e}")
                 if not args.keep_running:
                     sys.exit(1)
-
-            # Post optimization on each chunks
-            print(f"post optimizing chunk {chunk_name}")
-            try:
-                subprocess.run(
-                    post_opt_chunk_args + " -s "+ source_chunk + 
-                    " --model_path " + trained_chunk +
-                    " --hierarchy " + os.path.join(trained_chunk, "hierarchy.hier"),
-                    shell=True, check=True
-                )
-            except subprocess.CalledProcessError as e:
-                print(f"Error executing train_post: {e}")
-                if not args.keep_running:
-                    sys.exit(1) # TODO: log where it fails and don't add it to the consolidation and add a warning at the end
+        
+        # Post optimization on each chunks
+        print(f"post optimizing chunk {chunk_name}")
+        try:
+            subprocess.run(
+                post_opt_chunk_args + " -s "+ source_chunk + 
+                " --model_path " + trained_chunk +
+                " --hierarchy " + file_hier,
+                shell=True, check=True
+            )
+        except subprocess.CalledProcessError as e:
+            print(f"Error executing train_post: {e}")
+            if not args.keep_running:
+                sys.exit(1) # TODO: log where it fails and don't add it to the consolidation and add a warning at the end
 
     if args.use_slurm:
         # Check every 10 sec all the jobs status

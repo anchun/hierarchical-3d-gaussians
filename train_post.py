@@ -55,12 +55,17 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
     training_generator = DataLoader(scene.getTrainCameras(), num_workers = 8, prefetch_factor = 1, persistent_workers = True, collate_fn=direct_collate)
 
     limit = 0.001
+    interp_python =False # disable interpolation during training.
 
     render_indices = torch.zeros(gaussians._xyz.size(0)).int().cuda()
     parent_indices = torch.zeros(gaussians._xyz.size(0)).int().cuda()
     nodes_for_render_indices = torch.zeros(gaussians._xyz.size(0)).int().cuda()
-    interpolation_weights = torch.zeros(gaussians._xyz.size(0)).float().cuda()
-    num_siblings = torch.zeros(gaussians._xyz.size(0)).int().cuda()
+    if interp_python:
+        interpolation_weights = torch.zeros(gaussians._xyz.size(0)).float().cuda()
+        num_siblings = torch.zeros(gaussians._xyz.size(0)).int().cuda()
+    else:
+        interpolation_weights = torch.empty(0).float().cuda()
+        num_siblings = torch.empty(0).int().cuda()
     to_render = 0
 
     limmax = 0.1
@@ -101,16 +106,19 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
                 indices = render_indices[:to_render].int()
                 node_indices = nodes_for_render_indices[:to_render]
 
-                get_interpolation_weights(
-                    node_indices,
-                    limit * scale,
-                    gaussians.nodes,
-                    gaussians.boxes,
-                    viewpoint_cam.camera_center.cpu(),
-                    torch.zeros((3)),
-                    interpolation_weights,
-                    num_siblings
-                )
+                if interp_python:
+                    get_interpolation_weights(
+                        node_indices,
+                        limit * scale,
+                        gaussians.nodes,
+                        gaussians.boxes,
+                        viewpoint_cam.camera_center.cpu(),
+                        torch.zeros((3)),
+                        interpolation_weights,
+                        num_siblings
+                    )
+                else:
+                    parent_indices = torch.Tensor([]).int()
 
                 # Render
                 if (iteration - 1) == debug_from:
@@ -125,6 +133,7 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
                     parent_indices = parent_indices,
                     interpolation_weights = interpolation_weights,
                     num_node_kids = num_siblings,
+                    interp_python = interp_python, 
                     use_trained_exp=True,
                     )
                 image, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
@@ -173,12 +182,15 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
                                 gaussians._opacity.grad[-gaussians.skybox_points:, :] = 0
                                 gaussians._scaling.grad[-gaussians.skybox_points:, :] = 0
                             
-                            gaussians._xyz.grad[gaussians.anchors, :] = 0
+                            #gaussians._xyz.grad[gaussians.anchors, :] = 0
                             gaussians._rotation.grad[gaussians.anchors, :] = 0
                             gaussians._features_dc.grad[gaussians.anchors, :, :] = 0
                             gaussians._features_rest.grad[gaussians.anchors, :, :] = 0
                             gaussians._opacity.grad[gaussians.anchors, :] = 0
-                            gaussians._scaling.grad[gaussians.anchors, :] = 0
+
+                            # lock position and scaling for post
+                            gaussians._xyz.grad[:, :] = 0
+                            gaussians._scaling.grad[:, :] = 0
                         
                         ## OurAdam version
                         # if gaussians._opacity.grad != None:
