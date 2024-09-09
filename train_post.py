@@ -182,14 +182,14 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
                                 gaussians._opacity.grad[-gaussians.skybox_points:, :] = 0
                                 gaussians._scaling.grad[-gaussians.skybox_points:, :] = 0
                             
-                            #gaussians._xyz.grad[gaussians.anchors, :] = 0
+                            gaussians._xyz.grad[gaussians.anchors, :] = 0
                             gaussians._rotation.grad[gaussians.anchors, :] = 0
                             gaussians._features_dc.grad[gaussians.anchors, :, :] = 0
                             gaussians._features_rest.grad[gaussians.anchors, :, :] = 0
                             gaussians._opacity.grad[gaussians.anchors, :] = 0
 
-                            # lock position and scaling for post
-                            gaussians._xyz.grad[:, :] = 0
+                            # lock for post
+                            #gaussians._xyz.grad[:, :] = 0
                             gaussians._scaling.grad[:, :] = 0
                         
                         ## OurAdam version
