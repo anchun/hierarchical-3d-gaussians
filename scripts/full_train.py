@@ -57,6 +57,7 @@ if __name__ == '__main__':
     parser.add_argument("--chunks_post_iterations", type=int, default=15_000)
     parser.add_argument('--skip_merge', action="store_true", default=False)
     parser.add_argument('--writing_ply', action="store_true", default=True)
+    parser.add_argument('--writing_with_hierarchy', action="store_true", default=False)
     parser.add_argument('--disable_viewer', action='store_true', default=True)
     parser.add_argument('--output_dir', default="")
     parser.add_argument('--use_slurm', action="store_true", default=False)
@@ -297,7 +298,7 @@ if __name__ == '__main__':
         os.makedirs(point_cloud_dir, exist_ok=True)
         writing_ply_args = [
             hierarchy_merger_path, f"{output_dir}/trained_chunks",
-            "0", chunks_dir, f"{point_cloud_dir}/point_cloud.ply" 
+            "1" if args.writing_with_hierarchy else "0", chunks_dir, f"{point_cloud_dir}/point_cloud.ply" 
         ]
     
         writing_ply_args = writing_ply_args + chunk_names
