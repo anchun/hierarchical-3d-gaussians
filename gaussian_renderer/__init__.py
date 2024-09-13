@@ -18,7 +18,7 @@ from diff_gaussian_rasterization import _C
 import numpy as np
 
 def render(
-        viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, scaling_modifier = 1.0, override_color = None, indices = None, use_trained_exp=False):
+        viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, scaling_modifier = 1.0, override_color = None, indices = None, use_trained_exp=False, big_limit = 30.0):
     """
     Render the scene. 
     
@@ -58,7 +58,8 @@ def render(
         render_indices=render_indices,
         parent_indices=parent_indices,
         interpolation_weights=interpolation_weights,
-        num_node_kids=num_siblings
+        num_node_kids=num_siblings,
+        big_limit = big_limit
     )
 
     rasterizer = GaussianRasterizer(raster_settings=raster_settings)
@@ -147,7 +148,8 @@ def render_post(
         interpolation_weights = torch.Tensor([]).float(),
         num_node_kids = torch.Tensor([]).int(),
         interp_python = True,
-        use_trained_exp = False):
+        use_trained_exp = False,
+        big_limit = float('inf')):
     """
     Render the scene from a hierarchy.  
     
@@ -261,7 +263,8 @@ def render_post(
         parent_indices=parent_indices,
         interpolation_weights=interpolation_weights,
         num_node_kids=num_node_kids,
-        do_depth=False
+        do_depth=False,
+        big_limit = big_limit
     )
 
     rasterizer = GaussianRasterizer(raster_settings=raster_settings)
@@ -293,7 +296,7 @@ def render_post(
             "visibility_filter" : vis_filter,
             "radii": radii[vis_filter]}
 
-def render_coarse(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, scaling_modifier = 1.0, zfar=0.0, override_color = None, indices = None):
+def render_coarse(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, scaling_modifier = 1.0, zfar=0.0, override_color = None, indices = None, big_limit = float('inf')):
     """
     Render the scene for the coarse optimization. 
     
@@ -333,7 +336,8 @@ def render_coarse(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.T
         render_indices=render_indices,
         parent_indices=parent_indices,
         interpolation_weights=interpolation_weights,
-        num_node_kids=num_siblings
+        num_node_kids=num_siblings,
+        big_limit = big_limit
     )
 
     rasterizer = GaussianRasterizer(raster_settings=raster_settings)
