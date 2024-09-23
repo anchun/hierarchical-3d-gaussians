@@ -57,7 +57,7 @@ if __name__ == '__main__':
     parser.add_argument("--chunks_post_iterations", type=int, default=15_000)
     parser.add_argument('--skip_merge', action="store_true", default=False)
     parser.add_argument('--writing_ply', action="store_true", default=True)
-    parser.add_argument('--writing_with_hierarchy', action="store_true", default=False)
+    parser.add_argument('--writing_with_hierarchy', action="store_true", default=True)
     parser.add_argument('--disable_viewer', action='store_true', default=True)
     parser.add_argument('--output_dir', default="")
     parser.add_argument('--use_slurm', action="store_true", default=False)
@@ -274,7 +274,7 @@ if __name__ == '__main__':
 
     consolidation_args = [
         hierarchy_merger_path, f"{output_dir}/trained_chunks",
-        "1", chunks_dir, f"{output_dir}/merged.hier" 
+        "0", chunks_dir, f"{output_dir}/merged.hier" 
     ]
     
     consolidation_args = consolidation_args + chunk_names
