@@ -274,7 +274,7 @@ if __name__ == '__main__':
 
     consolidation_args = [
         hierarchy_merger_path, f"{output_dir}/trained_chunks",
-        "0", chunks_dir, f"{output_dir}/merged.hier" 
+        "1", chunks_dir, f"{output_dir}/merged.hier" 
     ]
     
     consolidation_args = consolidation_args + chunk_names
