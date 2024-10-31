@@ -54,7 +54,7 @@ if __name__ == '__main__':
     parser.add_argument('--chunks_dir', default="")
     parser.add_argument("--course_iterations", type=int, default=30_000)
     parser.add_argument("--chunks_iterations", type=int, default=30_000)
-    parser.add_argument("--chunks_post_iterations", type=int, default=15_000)
+    parser.add_argument("--chunks_post_iterations", type=int, default=0)
     parser.add_argument('--skip_merge', action="store_true", default=False)
     parser.add_argument('--writing_ply', action="store_true", default=True)
     parser.add_argument('--writing_with_hierarchy', action="store_true", default=False)
@@ -226,18 +226,19 @@ if __name__ == '__main__':
                     sys.exit(1)
         
         # Post optimization on each chunks
-        print(f"post optimizing chunk {chunk_name}")
-        try:
-            subprocess.run(
-                post_opt_chunk_args + " -s "+ source_chunk + 
-                " --model_path " + trained_chunk +
-                " --hierarchy " + file_hier,
-                shell=True, check=True
-            )
-        except subprocess.CalledProcessError as e:
-            print(f"Error executing train_post: {e}")
-            if not args.keep_running:
-                sys.exit(1) # TODO: log where it fails and don't add it to the consolidation and add a warning at the end
+        if args.chunks_post_iterations > 0:
+            print(f"post optimizing chunk {chunk_name}")
+            try:
+                subprocess.run(
+                    post_opt_chunk_args + " -s "+ source_chunk + 
+                    " --model_path " + trained_chunk +
+                    " --hierarchy " + file_hier,
+                    shell=True, check=True
+                )
+            except subprocess.CalledProcessError as e:
+                print(f"Error executing train_post: {e}")
+                if not args.keep_running:
+                    sys.exit(1) # TODO: log where it fails and don't add it to the consolidation and add a warning at the end
 
     if args.use_slurm:
         # Check every 10 sec all the jobs status
