@@ -14,7 +14,11 @@ import numpy as np
 from joblib import delayed, Parallel
 import argparse
 from exif import Image
+from numpy import sort
 from sklearn.neighbors import NearestNeighbors
+
+from database import COLMAPDatabase
+
 
 #TODO: clean it
 def decimal_coords(coords, ref):
@@ -37,8 +41,18 @@ def image_coordinates(image_name):
         except AttributeError:
             return None
     else:
-        return None    
-    
+        return None
+
+
+def image_coordinates_pose(images_list,image_name):
+    coords = []
+    if image_name in images_list.keys():
+        coords=images_list[image_name]
+        return coords
+    else:
+        return None
+
+
 def get_matches(img_name, cam_center, cam_nbrs, img_names_gps):
     _, indices = cam_nbrs.kneighbors(cam_center[None])
     matches = ""
@@ -53,8 +67,8 @@ def find_images_names(root_dir):
     for dirpath, dirnames, filenames in os.walk(root_dir):
 
         # Filter for image files (you can add more extensions if needed), sort images
-        image_files = sorted([f for f in filenames if f.lower().endswith(('.png', '.jpg', '.jpeg', '.JPG', '.PNG'))])
-
+        image_files = sort([int(f.split('.')[0]) for f in filenames if f.lower().endswith(('.png', '.jpg', '.JPG', '.PNG','.jpeg'))])
+        image_files =[str(f)+'.jpeg' for f in image_files]
         # If there are image files in the current directory, add them to the list
         if image_files:
             image_files_by_subdir.append({
@@ -63,16 +77,28 @@ def find_images_names(root_dir):
             })
 
     return image_files_by_subdir
+def get_all_images(db: COLMAPDatabase, cam_name_list: list):
+    images_list = {}
+    for cname in cam_name_list:
+        images_list[cname] = []
+    entries = db.execute("SELECT * FROM images")
+    for image_id, name, camera_id, qw, qx, qy, qz, tx, ty, tz in entries:
+        #print(camera_id)
+        images_list[name] = [tx, ty, tz]
+        #images_list[name].append({'image_id':image_id, 'image_name':name, 'translation': [tx, ty, tz], 'rotation': [qx, qy, qz, qw]})
+    return images_list
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('--image_path', required=True)
     parser.add_argument('--output_path', required=True)
-    parser.add_argument('--n_seq_matches_per_view', default=0, type=int)
-    parser.add_argument('--n_quad_matches_per_view', default=10, type=int)
+    parser.add_argument('--database_path', required=True)
+    parser.add_argument('--n_seq_matches_per_view', default=20, type=int)
+    parser.add_argument('--n_quad_matches_per_view', default=0, type=int)
     parser.add_argument('--n_loop_closure_match_per_view', default=5, type=int)
-    parser.add_argument('--loop_matches', default=[], type=int) 
-    parser.add_argument('--n_gps_neighbours', default=25, type=int)
+    parser.add_argument('--loop_matches', default=[], type=int)
+    parser.add_argument('--n_gps_neighbours', default=0, type=int)
+    parser.add_argument('--n_pose_neighbours', default=140, type=int)
     args = parser.parse_args()
 
 
@@ -139,6 +165,25 @@ if __name__ == '__main__':
         cam_centers_gps =  [cam_center for cam_center in all_cam_centers if cam_center is not None]
         cam_centers = np.array(cam_centers_gps)
         cam_nbrs = NearestNeighbors(n_neighbors=args.n_gps_neighbours).fit(cam_centers) if cam_centers.size else []
+
+        matches_str += [get_matches(img_name, cam_center, cam_nbrs, img_names_gps) for img_name, cam_center in zip(img_names_gps, cam_centers)]
+
+
+    ## Add Pose matches
+    if args.n_pose_neighbours > 0:
+        all_img_names = []
+        for ind, cam in enumerate(image_files_organised):
+            all_img_names += [os.path.join(cam['dir'], img_name).replace("\\",'/') for img_name in cam['images']]
+        db = COLMAPDatabase.connect(str(args.database_path))
+        images_list = get_all_images(db,all_img_names)
+        all_cam_centers = [image_coordinates_pose(images_list,img_name) for img_name in all_img_names]
+        # all_cam_centers = Parallel(n_jobs=-1, backend="threading")(
+        #     delayed(image_coordinates)(img_name) for img_name in all_img_names
+        # )
+        img_names_gps = [img_name for img_name, cam_center in zip(all_img_names, all_cam_centers) if cam_center is not None]
+        cam_centers_gps =  [cam_center for cam_center in all_cam_centers if cam_center is not None]
+        cam_centers = np.array(cam_centers_gps)
+        cam_nbrs = NearestNeighbors(n_neighbors=args.n_pose_neighbours).fit(cam_centers) if cam_centers.size else []
 
         matches_str += [get_matches(img_name, cam_center, cam_nbrs, img_names_gps) for img_name, cam_center in zip(img_names_gps, cam_centers)]
 
