@@ -16,7 +16,7 @@ import torch
 import argparse
 import os, time
 from scipy import spatial
-
+from sklearn.neighbors import NearestNeighbors
 def fit_plane_least_squares(points):
     # Augment the point cloud with a column of ones
     A = np.c_[points[:, 0], points[:, 1], np.ones(points.shape[0])]
@@ -39,6 +39,14 @@ def fit_plane_least_squares(points):
     in_plane_vector /= np.linalg.norm(in_plane_vector)  # Normalize the in-plane vector
     
     return normal_vector, in_plane_vector, np.mean(points, axis=0)
+
+def get_mean_distance( cam_center, cam_nbrs):
+    dis, indices = cam_nbrs.kneighbors(cam_center[None])
+    sum_dis=0
+    for arr in dis:
+        sum_dis=sum_dis+sum(arr)
+    print(sum_dis/len(dis))
+    return (sum_dis/len(dis))
 
 def rotate_camera(qvec, tvec, rot_matrix, upscale):
     # Assuming cameras have 'T' (translation) field
@@ -82,7 +90,7 @@ if __name__ == '__main__':
     parser.add_argument('--upscale', type=float, help='Upscaling factor',  default=0)
     parser.add_argument('--target_med_dist', default=20)
     parser.add_argument('--model_type', type=str, help='Specify which file format to use when processing colmap files (txt or bin)', choices=['bin','txt'], default='bin')
-
+    parser.add_argument('--n_pose_neighbours', default=10, type=int)
     args = parser.parse_args()
 
 
@@ -121,6 +129,22 @@ if __name__ == '__main__':
         -qvec2rotmat(images_metas_in[key].qvec).T @ images_metas_in[key].tvec
         for key in images_metas_in
     ])
+    # remove outliers
+    images_metas = images_metas_in
+    all_img_names = np.array([images_metas[key].name for key in images_metas])
+    img_names_gps = [img_name for img_name, cam_center in zip(all_img_names, cam_centers) if cam_center is not None]
+    cam_centers_gps = [cam_center for cam_center in cam_centers if cam_center is not None]
+    cam_centers = np.array(cam_centers_gps)
+    cam_nbrs = NearestNeighbors(n_neighbors=args.n_pose_neighbours).fit(cam_centers) if cam_centers.size else []
+
+    remove_images = [img_name for img_name, cam_center in zip(img_names_gps, cam_centers) if get_mean_distance( cam_center, cam_nbrs )>15]
+    print(remove_images)
+    remove_keys = np.array([key for key in images_metas if images_metas[key].name in remove_images])
+    cam_centers_2 = np.array([
+        -qvec2rotmat(images_metas[key].qvec).astype(np.float32).T @ images_metas[key].tvec.astype(np.float32)
+        for key in images_metas if key not in remove_keys
+    ])
+    print(len(remove_keys))
 
     up, _, _ = fit_plane_least_squares(cam_centers)
 
@@ -174,7 +198,9 @@ if __name__ == '__main__':
 
     print("Doing images")
     images_metas_out = {} 
-    for key in images_metas_in: 
+    for key in images_metas_in:
+        if key in remove_keys:
+            continue
         image_meta_in = images_metas_in[key]
         new_pos, new_rot = rotate_camera(image_meta_in.qvec, image_meta_in.tvec, rotation_matrix.double().numpy(), upscale)
         
