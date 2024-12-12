@@ -10,10 +10,14 @@
 #
 
 import os, sys, shutil
+import posixpath
 import subprocess
 import argparse
-from read_write_model import read_images_binary,write_images_binary, Image
 import time, platform
+import numpy as np
+from read_write_model import read_images_binary,write_images_binary, Image
+from database import COLMAPDatabase
+from colmap_helper import update_db_for_colmap_models
 
 def replace_images_by_masks(images_file, out_file):
     """Replace images.jpg to images.png in the colmap images.bin to process masks the same way as images."""
@@ -66,17 +70,30 @@ if __name__ == '__main__':
         args.masks_dir = args.masks_dir if os.path.exists(args.masks_dir) else ""
 
     colmap_exe = "colmap"
+    glomap_exe = "glomap"
     start_time = time.time()
 
     print(f"Project will be built here ${args.project_dir} base images are available there ${args.images_dir}.")
 
     setup_dirs(args.project_dir)
 
+    #init db
+    db_filepath = f"{args.project_dir}/camera_calibration/unrectified/database.db"
+    model_dir = f"{args.images_dir}/../sparse/0/"
+    if not os.path.exists(db_filepath):
+        db = COLMAPDatabase.connect(db_filepath)
+        db.create_tables()
+        # update db from colmap txts which located in the parent folder of images_dir as default
+        update_db_for_colmap_models(db, model_dir)
+        db.commit()
+        db.close()
+    
+    
     ## Feature extraction, matching then mapper to generate the colmap.
     print("extracting features ...")
     colmap_feature_extractor_args = [
         colmap_exe, "feature_extractor",
-        "--database_path", f"{args.project_dir}/camera_calibration/unrectified/database.db",
+        "--database_path", db_filepath,
         "--image_path", f"{args.images_dir}",
         "--ImageReader.single_camera_per_folder", "1",
         "--ImageReader.default_focal_length_factor", "0.5",
@@ -107,7 +124,7 @@ if __name__ == '__main__':
     print("matching features...")
     colmap_matches_importer_args = [
         colmap_exe, "matches_importer",
-        "--database_path", f"{args.project_dir}/camera_calibration/unrectified/database.db",
+        "--database_path", db_filepath,
         "--match_list_path", f"{args.project_dir}/camera_calibration/unrectified/matching.txt"
         ]
     try:
@@ -116,31 +133,23 @@ if __name__ == '__main__':
         print(f"Error executing colmap matches_importer: {e}")
         sys.exit(1)
 
-    ## Generate sfm pointcloud
-    print("generating sfm point cloud...")
-    colmap_hierarchical_mapper_args = [
-        colmap_exe, "hierarchical_mapper",
-        "--database_path", f"{args.project_dir}/camera_calibration/unrectified/database.db",
-        "--image_path", f"{args.images_dir}",
-        "--output_path", f"{args.project_dir}/camera_calibration/unrectified/sparse",
-        "--Mapper.ba_global_function_tolerance", "0.000001" 
-        ]
-    try:
-        subprocess.run(colmap_hierarchical_mapper_args, check=True)
-    except subprocess.CalledProcessError as e:
-        print(f"Error executing colmap hierarchical_mapper: {e}")
-        sys.exit(1)
-
-    ## Simplify images so that everything takes less time (reading colmap usually takes forever)
-    simplify_images_args = [
-        "python", f"preprocess/simplify_images.py",
-        "--base_dir", f"{args.project_dir}/camera_calibration/unrectified/sparse/0"
-    ]
-    try:
-        subprocess.run(simplify_images_args, check=True)
-    except subprocess.CalledProcessError as e:
-        print(f"Error executing simplify_images: {e}")
-        sys.exit(1)
+    # triangulate
+    os.system(f'colmap point_triangulator \
+        --database_path {db_filepath} \
+        --image_path {args.images_dir} \
+        --input_path {model_dir} \
+        --output_path {args.project_dir}/camera_calibration/unrectified/sparse/ \
+        --Mapper.ba_refine_focal_length 0 \
+        --Mapper.ba_refine_principal_point 0 \
+        --Mapper.max_extra_param 0 \
+        --clear_points 0 \
+        --Mapper.ba_global_max_num_iterations 30 \
+        --Mapper.filter_max_reproj_error 4 \
+        --Mapper.filter_min_tri_angle 0.5 \
+        --Mapper.tri_min_angle 0.5 \
+        --Mapper.tri_ignore_two_view_tracks 1 \
+        --Mapper.tri_complete_max_reproj_error 4 \
+        --Mapper.tri_continue_max_angle_error 4')
 
     ## Undistort images
     print(f"undistorting images from {args.images_dir} to {args.project_dir}/camera_calibration/rectified images...")
