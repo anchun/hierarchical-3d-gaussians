@@ -138,7 +138,7 @@ if __name__ == '__main__':
         --database_path {db_filepath} \
         --image_path {args.images_dir} \
         --input_path {model_dir} \
-        --output_path {args.project_dir}/camera_calibration/unrectified/sparse/ \
+        --output_path {args.project_dir}/camera_calibration/unrectified/sparse/0 \
         --Mapper.ba_refine_focal_length 0 \
         --Mapper.ba_refine_principal_point 0 \
         --Mapper.max_extra_param 0 \
