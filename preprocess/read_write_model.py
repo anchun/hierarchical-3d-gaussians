@@ -561,44 +561,39 @@ def rotmat2qvec(R):
         qvec *= -1
     return qvec
 
+def main():
+    parser = argparse.ArgumentParser(
+        description="combine multiple COLMAP binary and text models"
+    )
+    parser.add_argument("--input_point3d_model1", type=str, default=r"points3D1.bin", help="the first point3D model path")
+    parser.add_argument("--input_point3d_model2", type=str, default=r"points3D2.bin", help="the second point3D model path")
+    parser.add_argument("--output_model", type=str, default=r"points3D.bin", help="path to output model folder")
+    args = parser.parse_args()
+    point3D1 = read_points3D_binary(args.input_point3d_model1) if args.input_point3d_model1.endswith('.bin') else read_points3D_text(args.input_point3d_model1)
+    point3D2 = read_points3D_binary(args.input_point3d_model2) if args.input_point3d_model2.endswith('.bin') else read_points3D_text(args.input_point3d_model2)
 
-# def main():
-#     parser = argparse.ArgumentParser(
-#         description="Read and write COLMAP binary and text models"
-#     )
-#     parser.add_argument("--input_model", help="path to input model folder")
-#     parser.add_argument(
-#         "--input_format",
-#         choices=[".bin", ".txt"],
-#         help="input model format",
-#         default="",
-#     )
-#     parser.add_argument("--output_model", help="path to output model folder")
-#     parser.add_argument(
-#         "--output_format",
-#         choices=[".bin", ".txt"],
-#         help="outut model format",
-#         default=".txt",
-#     )
-#     args = parser.parse_args()
-
-#     cameras, images, points3D = read_model(
-#         path=args.input_model, ext=args.input_format
-#     )
-
-#     print("num_cameras:", len(cameras))
-#     print("num_images:", len(images))
-#     print("num_points3D:", len(points3D))
-
-#     if args.output_model is not None:
-#         write_model(
-#             cameras,
-#             images,
-#             points3D,
-#             path=args.output_model,
-#             ext=args.output_format,
-#         )
+    print("num for point3D1:", len(point3D1))
+    print("num for point3D2:", len(point3D2))
+    point3D = {}
+    count = 0
+    import itertools
+    for _, pt in itertools.chain(point3D1.items(), point3D2.items()):
+        point3D[count] = Point3D(
+                id=count,
+                xyz=pt.xyz,
+                rgb=pt.rgb,
+                error=pt.error,
+                image_ids=pt.image_ids,
+                point2D_idxs=pt.point2D_idxs,
+            )
+        count += 1
+    print("num for point3D:", count)
+    if args.output_model is not None:
+        if args.output_model.endswith('.bin'):
+            write_points3D_binary(point3D, args.output_model)
+        else:
+            write_points3D_text(point3D, args.output_model)
 
 
-# if __name__ == "__main__":
-#     main()
+if __name__ == "__main__":
+    main()
