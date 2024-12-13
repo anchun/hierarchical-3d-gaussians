@@ -133,6 +133,16 @@ if __name__ == '__main__':
             "--image_path", f"{bundle_adj_chunk}/images",
             "--input_path", f"{bundle_adj_chunk}/sparse/o",
             "--output_path", f"{bundle_adj_chunk}/sparse/0",
+            "--Mapper.ba_refine_focal_length", "0",
+            "--Mapper.ba_refine_principal_point", "0",
+            "--Mapper.max_extra_param", "0",
+            "--clear_points", "0",
+            "--Mapper.filter_max_reproj_error", "4",
+            "--Mapper.filter_min_tri_angle", "0.5",
+            "--Mapper.tri_min_angle", "0.5",
+            "--Mapper.tri_ignore_two_view_tracks", "1",
+            "--Mapper.tri_complete_max_reproj_error", "4",
+            "--Mapper.tri_continue_max_angle_error", "4"
             ], check=True)
     else:
         colmap_point_triangulator_args = [

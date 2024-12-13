@@ -138,7 +138,7 @@ if __name__ == '__main__':
         --database_path {db_filepath} \
         --image_path {args.images_dir} \
         --input_path {model_dir} \
-        --output_path {args.project_dir}/camera_calibration/unrectified/sparse/0 \
+        --output_path {args.project_dir}/camera_calibration/unrectified/sparse \
         --Mapper.ba_refine_focal_length 0 \
         --Mapper.ba_refine_principal_point 0 \
         --Mapper.max_extra_param 0 \
@@ -156,7 +156,7 @@ if __name__ == '__main__':
     colmap_image_undistorter_args = [
         colmap_exe, "image_undistorter",
         "--image_path", f"{args.images_dir}",
-        "--input_path", f"{args.project_dir}/camera_calibration/unrectified/sparse/0", 
+        "--input_path", f"{args.project_dir}/camera_calibration/unrectified/sparse", 
         "--output_path", f"{args.project_dir}/camera_calibration/rectified/",
         "--output_type", "COLMAP",
         "--max_image_size", "2048",
@@ -205,18 +205,10 @@ if __name__ == '__main__':
         # remove temporary dir containing undistorted masks
         shutil.rmtree(f"{args.project_dir}/camera_calibration/tmp")
 
-    # re-orient + scale colmap
-    print(f"re-orient and scaling scene to {args.project_dir}/camera_calibration/aligned/sparse/0")
-    reorient_args = [
-            "python", f"preprocess/auto_reorient.py",
-            "--input_path", f"{args.project_dir}/camera_calibration/rectified/sparse",
-            "--output_path", f"{args.project_dir}/camera_calibration/aligned/sparse/0"
-        ]
-    try:
-        subprocess.run(reorient_args, check=True)
-    except subprocess.CalledProcessError as e:
-        print(f"Error executing auto_orient: {e}")
-        sys.exit(1)
+    # copy to aligned/sparse/0 without re-orient
+    shutil.copyfile(f"{args.project_dir}/camera_calibration/rectified/sparse/images.bin", f"{args.project_dir}/camera_calibration/aligned/sparse/0/images.bin")
+    shutil.copyfile(f"{args.project_dir}/camera_calibration/rectified/sparse/cameras.bin", f"{args.project_dir}/camera_calibration/aligned/sparse/0/cameras.bin")
+    shutil.copyfile(f"{args.project_dir}/camera_calibration/rectified/sparse/points3D.bin", f"{args.project_dir}/camera_calibration/aligned/sparse/0/points3D.bin")
 
     end_time = time.time()
     print(f"Preprocessing done in {(end_time - start_time)/60.0} minutes.")
