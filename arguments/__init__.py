@@ -58,13 +58,14 @@ class ModelParams(ParamGroup):
         self.train_test_exp = False # Include the left half of the test images in the train set to optimize exposures
         self.data_device = "cuda"
         self.eval = False
-        self.skip_scale_big_gauss = False
+        self.skip_scale_big_gauss = True
         self.hierarchy = ""
         self.pretrained = ""
         self.skybox_num = 0
         self.scaffold_file = ""
         self.bounds_file = ""
         self.skybox_locked = False
+        self.use_npy_depth = False
         super().__init__(parser, "Loading Parameters", sentinel)
 
     def extract(self, args):

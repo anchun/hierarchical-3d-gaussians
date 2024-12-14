@@ -22,7 +22,7 @@ import torch.nn.functional as F
 
 class Camera(nn.Module):
     def __init__(self, resolution, colmap_id, R, T, FoVx, FoVy, depth_params, primx, primy, image, alpha_mask,
-                 invdepthmap,
+                 invdepthmap, invdepthmap_npy,
                  image_name, uid,
                  trans=np.array([0.0, 0.0, 0.0]), scale=1.0, data_device = "cuda",
                  train_test_exp=False, is_test_dataset=False, is_test_view=False,
@@ -85,6 +85,11 @@ class Camera(nn.Module):
                 self.depth_mask *= 0
             else:
                 self.depth_reliable = True
+
+        if invdepthmap_npy is not None:
+            self.invdepthmap_npy = torch.from_numpy(invdepthmap_npy).to(self.data_device)
+            self.depth_mask_npy = torch.ones_like(self.invdepthmap_npy > 0)
+            self.depth_reliable = True
 
         self.zfar = 100.0
         self.znear = 0.01

@@ -55,8 +55,9 @@ if __name__ == '__main__':
     parser.add_argument("--course_iterations", type=int, default=30_000)
     parser.add_argument("--chunks_iterations", type=int, default=30_000)
     parser.add_argument("--chunks_post_iterations", type=int, default=0)
-    parser.add_argument('--skip_merge', action="store_true", default=False)
     parser.add_argument('--writing_ply', action="store_true", default=True)
+    parser.add_argument('--skip_merge', action="store_true", default=False)
+    parser.add_argument('--use_npy_depth', action="store_true", default=False)
     parser.add_argument('--writing_with_hierarchy', action="store_true", default=False)
     parser.add_argument('--disable_viewer', action='store_true', default=True)
     parser.add_argument('--output_dir', default="")
@@ -112,6 +113,8 @@ if __name__ == '__main__':
             ])
             if masks_dir != "":
                 train_coarse_args += " --alpha_masks " + masks_dir
+            if args.use_npy_depth:
+                train_coarse_args += " --use_npy_depth"
             if args.extra_training_args != "": 
                 train_coarse_args += " " + args.extra_training_args
 
@@ -143,6 +146,8 @@ if __name__ == '__main__':
         train_chunk_args += " --disable_viewer"
     if masks_dir != "":
         train_chunk_args += " --alpha_masks " + masks_dir
+    if args.use_npy_depth:
+        train_chunk_args += " --use_npy_depth"
     if args.extra_training_args != "": 
         train_chunk_args += " " + args.extra_training_args
 
