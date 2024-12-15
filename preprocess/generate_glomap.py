@@ -70,6 +70,11 @@ if __name__ == '__main__':
         args.masks_dir = args.masks_dir if os.path.exists(args.masks_dir) else ""
 
     colmap_exe = "colmap"
+    if platform.system() == "Windows":
+        try:
+            subprocess.run([colmap_exe, "-h"], stdout=subprocess.PIPE, check=True)
+        except:
+            colmap_exe = "colmap.bat"
     glomap_exe = "glomap"
     start_time = time.time()
 
