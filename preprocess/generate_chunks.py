@@ -65,7 +65,12 @@ if __name__ == '__main__':
         ]
     submitted_jobs = []
 
-    colmap_exe = "colmap.bat" if platform.system() == "Windows" else "colmap"
+    colmap_exe = "colmap"
+    if platform.system() == "Windows":
+        try:
+            subprocess.run([colmap_exe, "-h"], stdout=subprocess.PIPE, check=True)
+        except:
+            colmap_exe = "colmap.bat"
     start_time = time.time()
 
     ## First create raw_chunks, each chunk has its own colmap.

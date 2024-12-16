@@ -66,6 +66,11 @@ if __name__ == '__main__':
         args.masks_dir = args.masks_dir if os.path.exists(args.masks_dir) else ""
 
     colmap_exe = "colmap"
+    if platform.system() == "Windows":
+        try:
+            subprocess.run([colmap_exe, "-h"], stdout=subprocess.PIPE, check=True)
+        except:
+            colmap_exe = "colmap.bat"
     start_time = time.time()
 
     print(f"Project will be built here ${args.project_dir} base images are available there ${args.images_dir}.")
