@@ -12,6 +12,7 @@
 import os
 import torch
 from utils.loss_utils import l1_loss, ssim
+from utils.image_utils import psnr
 from gaussian_renderer import render, network_gui
 import sys
 from scene import Scene, GaussianModel
@@ -47,6 +48,8 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
 
     ema_loss_for_log = 0.0
     ema_Ll1depth_for_log = 0.0
+    psnr_val_for_log = 0.0
+    ssim_val_for_log = 0.0
     progress_bar = tqdm(range(first_iter, opt.iterations), desc="Training progress")
     first_iter += 1
 
@@ -107,6 +110,9 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
                 
                 Ll1 = l1_loss(image, gt_image)
                 Lssim = (1.0 - ssim(image, gt_image))
+                psnr_val = psnr(image, gt_image).mean().double()
+                ssim_val = (1.0 - Lssim).mean().double()
+
                 photo_loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * Lssim 
                 loss = photo_loss.clone()
                 Ll1depth_pure = 0.0
@@ -132,8 +138,10 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
                     # Progress bar
                     ema_loss_for_log = 0.4 * photo_loss.item() + 0.6 * ema_loss_for_log
                     ema_Ll1depth_for_log = 0.4 * Ll1depth + 0.6 * ema_Ll1depth_for_log
+                    psnr_val_for_log = 0.4 * psnr_val + 0.6 * psnr_val_for_log
+                    ssim_val_for_log = 0.4 * ssim_val + 0.6 * ssim_val_for_log
                     if iteration % 10 == 0:
-                        progress_bar.set_postfix({"Loss": f"{ema_loss_for_log:.{7}f}", "Depth Loss": f"{ema_Ll1depth_for_log:.{7}f}", "Size": f"{gaussians._xyz.size(0)}"})
+                        progress_bar.set_postfix({"Loss": f"{ema_loss_for_log:.{7}f}", "Depth Loss": f"{ema_Ll1depth_for_log:.{7}f}", "PSNR": f"{psnr_val_for_log:.{5}f}", "SSIM": f"{ssim_val_for_log:.{5}f}" , "Size": f"{gaussians._xyz.size(0)}"})
                         progress_bar.update(10)
 
                     # Log and save
