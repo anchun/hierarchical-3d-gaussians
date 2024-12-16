@@ -55,10 +55,10 @@ if __name__ == '__main__':
     parser.add_argument("--course_iterations", type=int, default=30_000)
     parser.add_argument("--chunks_iterations", type=int, default=30_000)
     parser.add_argument("--chunks_post_iterations", type=int, default=0)
+    parser.add_argument("--sh_degree", type=int, default=3)
     parser.add_argument('--writing_ply', action="store_true", default=True)
     parser.add_argument('--skip_merge', action="store_true", default=False)
     parser.add_argument('--use_npy_depth', action="store_true", default=False)
-    parser.add_argument('--writing_with_hierarchy', action="store_true", default=False)
     parser.add_argument('--disable_viewer', action='store_true', default=True)
     parser.add_argument('--output_dir', default="")
     parser.add_argument('--use_slurm', action="store_true", default=False)
@@ -107,6 +107,7 @@ if __name__ == '__main__':
                 "python", "train_coarse.py",
                 "-s", colmap_dir,
                 "--save_iterations", "-1",
+                "--sh_degree", str(args.sh_degree),
                 "-i", images_dir,
                 "--skybox_num", "100000",
                 "--model_path", os.path.join(output_dir, "scaffold")
@@ -136,6 +137,7 @@ if __name__ == '__main__':
     train_chunk_args =  " ".join([
         "python", "-u train_single.py",
         "--save_iterations -1",
+        "--sh_degree", str(args.sh_degree),
         f"--iterations {args.chunks_iterations}",
         f"-i {images_dir}", 
         f"-d {depths_dir}",
@@ -161,6 +163,7 @@ if __name__ == '__main__':
         "--opacity_lr 0.01",
         "--scaling_lr 0.001",
         "--save_iterations -1",
+        "--sh_degree", str(args.sh_degree),
         f"-i {images_dir}", 
         f"--scaffold_file {output_dir}/scaffold/point_cloud/iteration_{args.course_iterations}",
     ])
@@ -304,7 +307,7 @@ if __name__ == '__main__':
         os.makedirs(point_cloud_dir, exist_ok=True)
         writing_ply_args = [
             hierarchy_merger_path, f"{output_dir}/trained_chunks",
-            "1" if args.writing_with_hierarchy else "0", chunks_dir, f"{point_cloud_dir}/point_cloud.ply" 
+            str(args.sh_degree), chunks_dir, f"{point_cloud_dir}/point_cloud.ply" 
         ]
     
         writing_ply_args = writing_ply_args + chunk_names

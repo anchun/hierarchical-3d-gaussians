@@ -41,8 +41,8 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
     iter_start = torch.cuda.Event(enable_timing = True)
     iter_end = torch.cuda.Event(enable_timing = True)
     if dataset.use_npy_depth:
-        opt.depth_l1_weight_init = 0.2
-        opt.depth_l1_weight_final = 0.2
+        opt.depth_l1_weight_init = 1.0
+        opt.depth_l1_weight_final = 1.0
     depth_l1_weight = get_expon_lr_func(opt.depth_l1_weight_init, opt.depth_l1_weight_final, max_steps=opt.iterations)
 
     ema_loss_for_log = 0.0

@@ -61,6 +61,7 @@ if __name__ == '__main__':
     parser.add_argument('--project_dir', type=str, required=True)
     parser.add_argument('--images_dir', default="", help="Will be set to project_dir/inputs/images if not set")
     parser.add_argument('--masks_dir', default="", help="Will be set to project_dir/inputs/masks if exists and not set")
+    parser.add_argument('--depths_dir', default="", help="Will be set to project_dir/inputs/depths if exists and not set")
     args = parser.parse_args()
     
     if args.images_dir == "":
@@ -68,6 +69,9 @@ if __name__ == '__main__':
     if args.masks_dir == "":
         args.masks_dir = os.path.join(args.project_dir, "inputs/masks")
         args.masks_dir = args.masks_dir if os.path.exists(args.masks_dir) else ""
+    if args.depths_dir == "":
+        args.depths_dir = os.path.join(args.project_dir, "inputs/depths")
+        args.depths_dir = args.depths_dir if os.path.exists(args.depths_dir) else ""
 
     colmap_exe = "colmap"
     if platform.system() == "Windows":
@@ -210,6 +214,12 @@ if __name__ == '__main__':
         # remove temporary dir containing undistorted masks
         shutil.rmtree(f"{args.project_dir}/camera_calibration/tmp")
 
+    # copy depths to rectified/depths
+    if not args.depths_dir == "":
+        depths_target_path = f"{args.project_dir}/camera_calibration/rectified/depths"
+        if os.path.exists(depths_target_path):
+            shutil.rmtree(depths_target_path)
+        shutil.copytree(args.depths_dir, depths_target_path)
     # copy to aligned/sparse/0 without re-orient
     shutil.copyfile(f"{args.project_dir}/camera_calibration/rectified/sparse/images.bin", f"{args.project_dir}/camera_calibration/aligned/sparse/0/images.bin")
     shutil.copyfile(f"{args.project_dir}/camera_calibration/rectified/sparse/cameras.bin", f"{args.project_dir}/camera_calibration/aligned/sparse/0/cameras.bin")
