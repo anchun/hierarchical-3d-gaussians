@@ -150,6 +150,8 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
                         scene.save(iteration)
                         print("peak memory: ", torch.cuda.max_memory_allocated(device='cuda'))
 
+                    if iteration % 5000 == 0:
+                        print()
                     if iteration == opt.iterations:
                         progress_bar.close()
                         return
@@ -164,7 +166,7 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
                             gaussians.densify_and_prune(opt.densify_grad_threshold, 0.005, scene.cameras_extent)
                         
                         if iteration % opt.opacity_reset_interval == 0:
-                            print("-----------------RESET OPACITY!-------------")
+                            #print("-----------------RESET OPACITY!-------------")
                             gaussians.reset_opacity()
 
                     # Optimizer step
