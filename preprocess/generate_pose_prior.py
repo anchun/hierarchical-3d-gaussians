@@ -143,12 +143,18 @@ if __name__ == '__main__':
         print(f"Error executing colmap matches_importer: {e}")
         sys.exit(1)
 
+    # copy from input to unrectified for triangulate
+    unrectified_sparse_dir = f'{args.project_dir}/camera_calibration/unrectified/sparse'
+    shutil.copyfile(f"{model_dir}/images.bin", f"{unrectified_sparse_dir}/images.bin")
+    shutil.copyfile(f"{model_dir}/cameras.bin", f"{unrectified_sparse_dir}/cameras.bin")
+    shutil.copyfile(f"{model_dir}/points3D.bin", f"{unrectified_sparse_dir}/points3D.bin")
+
     # triangulate and BA
     triangulate_cmd = f'{colmap_exe} point_triangulator \
         --database_path {db_filepath} \
         --image_path {args.images_dir} \
-        --input_path {model_dir} \
-        --output_path {args.project_dir}/camera_calibration/unrectified/sparse \
+        --input_path {unrectified_sparse_dir} \
+        --output_path {unrectified_sparse_dir} \
         --Mapper.ba_global_max_num_iterations 200 \
         --Mapper.ba_global_max_refinements 10 \
         --Mapper.ba_refine_focal_length 0 \
@@ -163,8 +169,8 @@ if __name__ == '__main__':
         --Mapper.tri_continue_max_angle_error 4 \
         '
     bundle_adjuster_cmd = f'{colmap_exe} bundle_adjuster \
-        --input_path {model_dir} \
-        --output_path {model_dir} \
+        --input_path {unrectified_sparse_dir} \
+        --output_path {unrectified_sparse_dir} \
         --BundleAdjustment.max_num_iterations 400 \
         --BundleAdjustment.refine_focal_length 0 \
         --BundleAdjustment.refine_principal_point 0 \
@@ -175,6 +181,7 @@ if __name__ == '__main__':
         if args.pose_optim_rounds == 0:
             print(f"point triangulator")
             subprocess.run(triangulate_cmd.split(), check=True)
+        
         for pose_optim_round in range(args.pose_optim_rounds):
             print(f"[ROUND {pose_optim_round+1}/{args.pose_optim_rounds}] point triangulator. {triangulate_cmd}")
             subprocess.run(triangulate_cmd.split(), check=True)
@@ -189,7 +196,7 @@ if __name__ == '__main__':
     colmap_image_undistorter_args = [
         colmap_exe, "image_undistorter",
         "--image_path", f"{args.images_dir}",
-        "--input_path", f"{args.project_dir}/camera_calibration/unrectified/sparse", 
+        "--input_path", f"{unrectified_sparse_dir}", 
         "--output_path", f"{args.project_dir}/camera_calibration/rectified/",
         "--output_type", "COLMAP",
         "--max_image_size", "2048",
