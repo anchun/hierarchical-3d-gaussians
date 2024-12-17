@@ -150,7 +150,7 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
                         scene.save(iteration)
                         print("peak memory: ", torch.cuda.max_memory_allocated(device='cuda'))
 
-                    if iteration % 5000 == 0:
+                    if iteration % opt.opacity_reset_interval == 0:
                         print()
                     if iteration == opt.iterations:
                         progress_bar.close()

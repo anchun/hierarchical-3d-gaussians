@@ -62,6 +62,7 @@ if __name__ == '__main__':
     parser.add_argument('--images_dir', default="", help="Will be set to project_dir/inputs/images if not set")
     parser.add_argument('--masks_dir', default="", help="Will be set to project_dir/inputs/masks if exists and not set")
     parser.add_argument('--depths_dir', default="", help="Will be set to project_dir/inputs/depths if exists and not set")
+    parser.add_argument('--pose_optim_rounds', type=int, default=3, help="set the pose optimization rounds for point_triangulator and bundle_adjuster")
     args = parser.parse_args()
     
     if args.images_dir == "":
@@ -142,23 +143,46 @@ if __name__ == '__main__':
         print(f"Error executing colmap matches_importer: {e}")
         sys.exit(1)
 
-    # triangulate
-    os.system(f'colmap point_triangulator \
+    # triangulate and BA
+    triangulate_cmd = f'{colmap_exe} point_triangulator \
         --database_path {db_filepath} \
         --image_path {args.images_dir} \
         --input_path {model_dir} \
         --output_path {args.project_dir}/camera_calibration/unrectified/sparse \
+        --Mapper.ba_global_max_num_iterations 200 \
+        --Mapper.ba_global_max_refinements 10 \
         --Mapper.ba_refine_focal_length 0 \
         --Mapper.ba_refine_principal_point 0 \
         --Mapper.max_extra_param 0 \
         --clear_points 0 \
-        --Mapper.ba_global_max_num_iterations 30 \
         --Mapper.filter_max_reproj_error 4 \
         --Mapper.filter_min_tri_angle 0.5 \
         --Mapper.tri_min_angle 0.5 \
         --Mapper.tri_ignore_two_view_tracks 1 \
         --Mapper.tri_complete_max_reproj_error 4 \
-        --Mapper.tri_continue_max_angle_error 4')
+        --Mapper.tri_continue_max_angle_error 4 \
+        '
+    bundle_adjuster_cmd = f'{colmap_exe} bundle_adjuster \
+        --input_path {model_dir} \
+        --output_path {model_dir} \
+        --BundleAdjustment.max_num_iterations 400 \
+        --BundleAdjustment.refine_focal_length 0 \
+        --BundleAdjustment.refine_principal_point 0 \
+        --BundleAdjustment.refine_extra_params 0 \
+        '
+    
+    try:
+        if args.pose_optim_rounds == 0:
+            print(f"point triangulator")
+            subprocess.run(triangulate_cmd.split(), check=True)
+        for pose_optim_round in range(args.pose_optim_rounds):
+            print(f"[ROUND {pose_optim_round+1}/{args.pose_optim_rounds}] point triangulator. {triangulate_cmd}")
+            subprocess.run(triangulate_cmd.split(), check=True)
+            print(f"[ROUND {pose_optim_round+1}/{args.pose_optim_rounds}] bundle adjuster. {bundle_adjuster_cmd}")
+            subprocess.run(bundle_adjuster_cmd.split(), check=True)
+    except subprocess.CalledProcessError as e:
+            print(f"Error executing pose optimization: {e}")
+            sys.exit(1)
 
     ## Undistort images
     print(f"undistorting images from {args.images_dir} to {args.project_dir}/camera_calibration/rectified images...")

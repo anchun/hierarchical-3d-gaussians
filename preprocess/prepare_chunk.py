@@ -155,15 +155,26 @@ if __name__ == '__main__':
             "--Mapper.ba_global_function_tolerance", "0.000001",
             "--Mapper.ba_global_max_num_iterations", "200",
             "--Mapper.ba_global_max_refinements", "10",
+            "--Mapper.ba_refine_focal_length", "0",
+            "--Mapper.ba_refine_principal_point", "0",
+            "--Mapper.max_extra_param", "0",
+            "--clear_points", "0",
+            "--Mapper.filter_max_reproj_error", "4",
+            "--Mapper.filter_min_tri_angle", "0.5",
+            "--Mapper.tri_min_angle", "0.5",
+            "--Mapper.tri_ignore_two_view_tracks", "1",
+            "--Mapper.tri_complete_max_reproj_error", "4",
+            "--Mapper.tri_continue_max_angle_error", "4",
             ]
 
         colmap_bundle_adjuster_args = [
             colmap_exe, "bundle_adjuster",
-            "--BundleAdjustment.refine_extra_params", "0",
             "--BundleAdjustment.function_tolerance", "0.000001",
             "--BundleAdjustment.max_linear_solver_iterations", "100",
             "--BundleAdjustment.max_num_iterations", "400", 
-            "--BundleAdjustment.refine_focal_length", "0"
+            "--BundleAdjustment.refine_focal_length", "0",
+            "--BundleAdjustment.refine_principal_point", "0",
+            "--BundleAdjustment.refine_extra_params", "0",
             ]
         # 2 rounds of triangulation + bundle adjustment
         try:
