@@ -42,8 +42,8 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
     iter_start = torch.cuda.Event(enable_timing = True)
     iter_end = torch.cuda.Event(enable_timing = True)
     if dataset.use_npy_depth:
-        opt.depth_l1_weight_init = 1.0
-        opt.depth_l1_weight_final = 1.0
+        opt.depth_l1_weight_init = 0.5
+        opt.depth_l1_weight_final = 0.5
     depth_l1_weight = get_expon_lr_func(opt.depth_l1_weight_init, opt.depth_l1_weight_final, max_steps=opt.iterations)
 
     ema_loss_for_log = 0.0
@@ -123,7 +123,9 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
                     else:
                         mono_invdepth = viewpoint_cam.invdepthmap.cuda()
                         depth_mask = viewpoint_cam.depth_mask.cuda()
-                    Ll1depth_pure = torch.abs((invDepth  - mono_invdepth) * depth_mask).mean()
+                    depth_error = torch.abs(invDepth[0][depth_mask] - mono_invdepth[depth_mask])
+                    depth_error, _ = torch.topk(depth_error, int(0.95 * depth_error.size(0)), largest=False)
+                    Ll1depth_pure = depth_error.mean()
                     Ll1depth = depth_l1_weight(iteration) * Ll1depth_pure 
                     loss += Ll1depth
                     Ll1depth = Ll1depth.item()
