@@ -159,6 +159,7 @@ if __name__ == '__main__':
         --Mapper.ba_global_max_refinements 10 \
         --Mapper.ba_refine_focal_length 0 \
         --Mapper.ba_refine_principal_point 0 \
+        --Mapper.ba_refine_extra_params 0 \
         --Mapper.max_extra_param 0 \
         --clear_points 0 \
         --Mapper.filter_max_reproj_error 4 \
@@ -167,6 +168,7 @@ if __name__ == '__main__':
         --Mapper.tri_ignore_two_view_tracks 1 \
         --Mapper.tri_complete_max_reproj_error 4 \
         --Mapper.tri_continue_max_angle_error 4 \
+        --Mapper.ba_use_gpu 1\
         '
     bundle_adjuster_cmd = f'{colmap_exe} bundle_adjuster \
         --input_path {unrectified_sparse_dir} \
@@ -175,6 +177,7 @@ if __name__ == '__main__':
         --BundleAdjustment.refine_focal_length 0 \
         --BundleAdjustment.refine_principal_point 0 \
         --BundleAdjustment.refine_extra_params 0 \
+        --BundleAdjustment.use_gpu 1 \
         '
     
     try:
