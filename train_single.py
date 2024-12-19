@@ -120,11 +120,13 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
                     if dataset.use_npy_depth:
                         mono_invdepth = viewpoint_cam.invdepthmap_npy.cuda()
                         depth_mask = viewpoint_cam.depth_mask_npy.cuda()
+                        depth_error = torch.abs(invDepth[0][depth_mask] - mono_invdepth[depth_mask])
+                        depth_error, _ = torch.topk(depth_error, int(0.95 * depth_error.size(0)), largest=False)
                     else:
                         mono_invdepth = viewpoint_cam.invdepthmap.cuda()
                         depth_mask = viewpoint_cam.depth_mask.cuda()
-                    depth_error = torch.abs(invDepth[0][depth_mask] - mono_invdepth[depth_mask])
-                    depth_error, _ = torch.topk(depth_error, int(0.95 * depth_error.size(0)), largest=False)
+                        depth_error = torch.abs((invDepth  - mono_invdepth) * depth_mask)
+
                     Ll1depth_pure = depth_error.mean()
                     Ll1depth = depth_l1_weight(iteration) * Ll1depth_pure 
                     loss += Ll1depth
