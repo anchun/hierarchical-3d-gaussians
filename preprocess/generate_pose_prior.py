@@ -62,7 +62,7 @@ if __name__ == '__main__':
     parser.add_argument('--images_dir', default="", help="Will be set to project_dir/inputs/images if not set")
     parser.add_argument('--masks_dir', default="", help="Will be set to project_dir/inputs/masks if exists and not set")
     parser.add_argument('--depths_dir', default="", help="Will be set to project_dir/inputs/depths if exists and not set")
-    parser.add_argument('--pose_optim_rounds', type=int, default=3, help="set the pose optimization rounds for point_triangulator and bundle_adjuster")
+    parser.add_argument('--pose_optim_rounds', type=int, default=2, help="set the pose optimization rounds for point_triangulator and bundle_adjuster")
     args = parser.parse_args()
     
     if args.images_dir == "":
@@ -144,10 +144,19 @@ if __name__ == '__main__':
         sys.exit(1)
 
     # copy from input to unrectified for triangulate
+    print("model converter...")
     unrectified_sparse_dir = f'{args.project_dir}/camera_calibration/unrectified/sparse'
-    shutil.copyfile(f"{model_dir}/images.bin", f"{unrectified_sparse_dir}/images.bin")
-    shutil.copyfile(f"{model_dir}/cameras.bin", f"{unrectified_sparse_dir}/cameras.bin")
-    shutil.copyfile(f"{model_dir}/points3D.bin", f"{unrectified_sparse_dir}/points3D.bin")
+    colmap_model_converter_args = [
+        colmap_exe, "model_converter",
+        "--input_path", model_dir,
+        "--output_path", unrectified_sparse_dir,
+        "--output_type", "BIN"
+        ]
+    try:
+        subprocess.run(colmap_model_converter_args, check=True)
+    except subprocess.CalledProcessError as e:
+        print(f"Error executing colmap model_converter: {e}")
+        sys.exit(1)
 
     # triangulate and BA
     triangulate_cmd = f'{colmap_exe} point_triangulator \
@@ -212,18 +221,18 @@ if __name__ == '__main__':
 
     if not args.masks_dir == "":
         # create a copy of colmap as txt and replace jpgs with pngs to undistort masks the same way images were distorted
-        if not os.path.exists(f"{args.project_dir}/camera_calibration/unrectified/sparse/0/masks"):
-            os.makedirs(f"{args.project_dir}/camera_calibration/unrectified/sparse/0/masks")
+        if not os.path.exists(f"{unrectified_sparse_dir}/masks"):
+            os.makedirs(f"{unrectified_sparse_dir}/masks")
 
-        shutil.copyfile(f"{args.project_dir}/camera_calibration/unrectified/sparse/0/cameras.bin", f"{args.project_dir}/camera_calibration/unrectified/sparse/0/masks/cameras.bin")
-        shutil.copyfile(f"{args.project_dir}/camera_calibration/unrectified/sparse/0/points3D.bin", f"{args.project_dir}/camera_calibration/unrectified/sparse/0/masks/points3D.bin")
-        replace_images_by_masks(f"{args.project_dir}/camera_calibration/unrectified/sparse/0/images.bin", f"{args.project_dir}/camera_calibration/unrectified/sparse/0/masks/images.bin")
+        shutil.copyfile(f"{unrectified_sparse_dir}/cameras.bin", f"{unrectified_sparse_dir}/masks/cameras.bin")
+        shutil.copyfile(f"{unrectified_sparse_dir}/points3D.bin", f"{unrectified_sparse_dir}/masks/points3D.bin")
+        replace_images_by_masks(f"{unrectified_sparse_dir}/images.bin", f"{unrectified_sparse_dir}/masks/images.bin")
 
         print("undistorting masks aswell...")
         colmap_image_undistorter_args = [
             colmap_exe, "image_undistorter",
             "--image_path", f"{args.masks_dir}",
-            "--input_path", f"{args.project_dir}/camera_calibration/unrectified/sparse/0/masks", 
+            "--input_path", f"{unrectified_sparse_dir}/masks", 
             "--output_path", f"{args.project_dir}/camera_calibration/tmp/",
             "--output_type", "COLMAP",
             "--max_image_size", "2048",

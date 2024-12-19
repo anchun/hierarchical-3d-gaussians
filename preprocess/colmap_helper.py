@@ -79,15 +79,16 @@ def update_db_for_colmap_models(db, model_path):
             if line.startswith('#'):
                 continue
             values = line.strip().split(' ')
-            if len(values) < 10:
+            if len(values) != 10:
                 continue
             image_id, qw, qx, qy, qz, tx, ty, tz, camera_id, image_name = int(values[0]), float(values[1]), float(
                 values[2]), float(values[3]), float(values[4]), float(values[5]), float(values[6]), float(
                 values[7]), int(values[8]), values[9]
             # print(image_id, qw, qx, qy, qz, tx, ty, tz, camera_id, image_name)
-            camera_images[camera_id].append(
-                {'image_name': image_name, 'prior_q': [qw, qx, qy, qz], 'prior_t': [tx, ty, tz]})
-            count += 1
+            if camera_id in camera_ids:
+                camera_images[camera_id].append(
+                    {'image_name': image_name, 'prior_q': [qw, qx, qy, qz], 'prior_t': [tx, ty, tz]})
+                count += 1
 
     # add db and update image_id with new sequence
     count = 0
