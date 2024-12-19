@@ -198,7 +198,7 @@ def readColmapSceneInfo(path, images, masks, depths, eval, train_test_exp, llffh
     depth_params_file = os.path.join(path, "sparse/0", "depth_params.json")
     ## if depth_params_file isnt there AND depths file is here -> throw error
     depths_params = None
-    if depths != "":
+    if depths != "" and not use_npy_depth:
         try:
             with open(depth_params_file, "r") as f:
                 depths_params = json.load(f)
