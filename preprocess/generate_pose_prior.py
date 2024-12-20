@@ -211,7 +211,7 @@ if __name__ == '__main__':
         "--input_path", f"{unrectified_sparse_dir}", 
         "--output_path", f"{args.project_dir}/camera_calibration/rectified/",
         "--output_type", "COLMAP",
-        "--max_image_size", "2048",
+        "--max_image_size", "4096",
         ]
     try:
         subprocess.run(colmap_image_undistorter_args, check=True)
@@ -235,7 +235,7 @@ if __name__ == '__main__':
             "--input_path", f"{unrectified_sparse_dir}/masks", 
             "--output_path", f"{args.project_dir}/camera_calibration/tmp/",
             "--output_type", "COLMAP",
-            "--max_image_size", "2048",
+            "--max_image_size", "4096",
             ]
         try:
             subprocess.run(colmap_image_undistorter_args, check=True)

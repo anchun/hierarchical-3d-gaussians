@@ -68,7 +68,8 @@ if __name__ == '__main__':
         "--image_path", f"{args.images_dir}",
         "--input_path", f"{args.raw_chunk}/sparse/0", 
         "--output_path", f"{bundle_adj_chunk}",
-        "--output_type", "COLMAP"
+        "--output_type", "COLMAP",
+        "--max_image_size", "4096",
         ]
     try:
         subprocess.run(colmap_image_undistorter_args, check=True)
@@ -97,6 +98,7 @@ if __name__ == '__main__':
         "--database_path", f"{bundle_adj_chunk}/database.db",
         "--image_path", f"{bundle_adj_chunk}/images",
         "--ImageReader.mask_path", f"{bundle_adj_chunk}/masks",
+        "--ImageReader.single_camera_per_folder", "1",
         "--ImageReader.existing_camera_id", "1",
         ]
     
