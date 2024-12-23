@@ -121,7 +121,7 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
                         mono_invdepth = viewpoint_cam.invdepthmap_npy.cuda()
                         depth_mask = viewpoint_cam.depth_mask_npy.cuda()
                         depth_error = torch.abs(invDepth[0][depth_mask] - mono_invdepth[depth_mask])
-                        depth_error, _ = torch.topk(depth_error, int(0.95 * depth_error.size(0)), largest=False)
+                        depth_error, _ = torch.topk(depth_error, int(0.9 * depth_error.size(0)), largest=False)
                     else:
                         mono_invdepth = viewpoint_cam.invdepthmap.cuda()
                         depth_mask = viewpoint_cam.depth_mask.cuda()
@@ -140,10 +140,10 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
 
                 with torch.no_grad():
                     # Progress bar
-                    ema_loss_for_log = 0.4 * photo_loss.item() + 0.6 * ema_loss_for_log
-                    ema_Ll1depth_for_log = 0.4 * Ll1depth + 0.6 * ema_Ll1depth_for_log
-                    psnr_val_for_log = 0.4 * psnr_val + 0.6 * psnr_val_for_log
-                    ssim_val_for_log = 0.4 * ssim_val + 0.6 * ssim_val_for_log
+                    ema_loss_for_log = 0.1 * photo_loss.item() + 0.9 * ema_loss_for_log
+                    ema_Ll1depth_for_log = 0.1 * Ll1depth + 0.9 * ema_Ll1depth_for_log
+                    psnr_val_for_log = 0.1 * psnr_val + 0.9 * psnr_val_for_log
+                    ssim_val_for_log = 0.1 * ssim_val + 0.9 * ssim_val_for_log
                     if iteration % 10 == 0:
                         progress_bar.set_postfix({"Loss": f"{ema_loss_for_log:.{7}f}", "Depth Loss": f"{ema_Ll1depth_for_log:.{7}f}", "PSNR": f"{psnr_val_for_log:.{5}f}", "SSIM": f"{ssim_val_for_log:.{5}f}" , "Size": f"{gaussians._xyz.size(0)}"})
                         progress_bar.update(10)
