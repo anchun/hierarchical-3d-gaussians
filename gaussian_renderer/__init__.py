@@ -24,7 +24,8 @@ def render(
     
     Background tensor (bg_color) must be on GPU!
     """
- 
+
+    pc.parse_camera(viewpoint_camera)
     # Create zero tensor. We will use it to make pytorch return gradients of the 2D (screen-space) means
     screenspace_points = torch.zeros_like(pc.get_xyz, dtype=pc.get_xyz.dtype, requires_grad=True, device="cuda") + 0
     try:
@@ -101,8 +102,20 @@ def render(
         shs = shs[indices].contiguous()
         opacity = opacity[indices].contiguous()
         scales = scales[indices].contiguous()
-        rotations = rotations[indices].contiguous() 
+        rotations = rotations[indices].contiguous()
 
+    feature_names = []
+    features = []
+    if cfg.data.get('use_semantic', False):
+        semantics = pc.get_semantic
+        feature_names.append('semantic')
+        feature_dims.append(semantics.shape[-1])
+        features.append(semantics)
+
+    if len(features) > 0:
+        features = torch.cat(features, dim=-1)
+    else:
+        features = None
     rendered_image, radii, depth_image = rasterizer(
         means3D = means3D,
         means2D = means2D,
@@ -111,7 +124,9 @@ def render(
         opacities = opacity,
         scales = scales,
         rotations = rotations,
-        cov3D_precomp = cov3D_precomp)
+        cov3D_precomp = cov3D_precomp,
+        semantics = features,
+    )
     
     if use_trained_exp:
         exposure = pc.get_exposure_from_name(viewpoint_camera.image_name)

@@ -28,7 +28,7 @@ def direct_collate(x):
 def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, checkpoint, debug_from):
     first_iter = 0
     prepare_output_and_logger(dataset)
-    gaussians = GaussianModel(1)
+    gaussians = GaussianModel(1, dataset.scene_info.metadata)
     scene = Scene(dataset, gaussians)
     gaussians.training_setup(opt)
     if checkpoint:

@@ -26,6 +26,7 @@ class Camera(nn.Module):
                  image_name, uid,
                  trans=np.array([0.0, 0.0, 0.0]), scale=1.0, data_device = "cuda",
                  train_test_exp=False, is_test_dataset=False, is_test_view=False,
+                 metadata=None
                  ):
         super(Camera, self).__init__()
 
@@ -36,6 +37,7 @@ class Camera(nn.Module):
         self.FoVx = FoVx
         self.FoVy = FoVy
         self.image_name = image_name
+        self.metadata = metadata
 
         try:
             self.data_device = torch.device(data_device)
@@ -101,6 +103,19 @@ class Camera(nn.Module):
         self.projection_matrix = getProjectionMatrix(znear=self.znear, zfar=self.zfar, fovX=self.FoVx, fovY=self.FoVy, primx = primx, primy=primy).transpose(0,1).to(self.data_device)
         self.full_proj_transform = (self.world_view_transform.unsqueeze(0).bmm(self.projection_matrix.unsqueeze(0))).squeeze(0).to(self.data_device)
         self.camera_center = self.world_view_transform.inverse()[3, :3].to(self.data_device)
+
+        if metadata is not None and 'ego_pose' in self.metadata.keys():
+            self.ego_pose = torch.from_numpy(self.metadata['ego_pose']).float().to(self.data_device)
+            del self.metadata['ego_pose']
+        else:
+            self.ego_pose = None
+
+        if metadata is not None and 'extrinsic' in self.metadata.keys():
+            self.extrinsic = torch.from_numpy(self.metadata['extrinsic']).float().to(self.data_device)
+            del self.metadata['extrinsic']
+        else:
+            self.extrinsic = None
+
 
 class MiniCam:
     def __init__(self, width, height, fovy, fovx, znear, zfar, world_view_transform, full_proj_transform):

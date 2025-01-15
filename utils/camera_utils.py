@@ -93,7 +93,7 @@ def loadCam(args, id, cam_info, resolution_scale, is_test_dataset):
                   primx=cam_info.primx, primy=cam_info.primy,
                   image=image, alpha_mask=alpha_mask, invdepthmap=invdepthmap,invdepthmap_npy=invdepthmap_npy,
                   image_name=cam_info.image_name, uid=id, data_device=args.data_device, 
-                  train_test_exp=args.train_test_exp, is_test_dataset=is_test_dataset, is_test_view=cam_info.is_test)
+                  train_test_exp=args.train_test_exp, is_test_dataset=is_test_dataset, is_test_view=cam_info.is_test, metadata=cam_info.metadata)
 
 def cameraList_from_camInfos(cam_infos, resolution_scale, args):
     camera_list = []

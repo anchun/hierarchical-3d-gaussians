@@ -43,10 +43,20 @@ class GaussianModel:
 
         self.rotation_activation = torch.nn.functional.normalize
 
+        # Build object model
+        self.obj_list = []
+        self.model_name_id = bidict()
+        if 'dynamic_objects' in self.metadata.keys() and len(self.metadata['dynamic_objects'] > 0):
+            for object_id, obj_meta in self.obj_info.items():
+                model_name = f'obj_{object_id:03d}'
+                setattr(self, model_name, GaussianModelActor(model_name=model_name, obj_meta=obj_meta, num_frames=self.metadata['num_frames']))
+                self.model_name_id[model_name] = self.models_num
+                self.obj_list.append(model_name)
+                # self.models_num += 1
 
 
-
-    def __init__(self, sh_degree : int):
+    def __init__(self, sh_degree : int, metadata: dict, num_classes: int=1):
+        self.num_classes = num_classes
         self.active_sh_degree = 0
         self.max_sh_degree = sh_degree  
         self._xyz = torch.empty(0)
@@ -55,6 +65,7 @@ class GaussianModel:
         self._scaling = torch.empty(0)
         self._rotation = torch.empty(0)
         self._opacity = torch.empty(0)
+        self._semantic = torch.empty(0)
         self.max_radii2D = torch.empty(0)
         self.xyz_gradient_accum = torch.empty(0)
         self.denom = torch.empty(0)
@@ -69,6 +80,7 @@ class GaussianModel:
         self.skybox_points = 0
         self.skybox_locked = True
 
+        self.metadata = metadata
         self.setup_functions()
 
     def capture(self):
@@ -105,27 +117,80 @@ class GaussianModel:
         self.denom = denom
         self.optimizer.load_state_dict(opt_dict)
 
+    def parse_camera(self, camera: Camera):
+        for obj_model in self.obj_list:
+            obj_model.parse_camera(camera)
+
     @property
     def get_scaling(self):
-        return self.scaling_activation(self._scaling)
+        scalings = []
+        scaling_bkgd = self.scaling_activation(self._scaling)
+        scalings.append(scaling_bkgd)
+        for obj_model in self.obj_list:
+            scaling = obj_model.get_scaling
+            scalings.append(scaling)
+        scalings = torch.cat(scalings, dim=0)
+        return scalings
     
     @property
     def get_rotation(self):
-        return self.rotation_activation(self._rotation)
-    
+        rotations = []
+        rotations_bkgd = self.rotation_activation(self._rotation)
+        rotations.append(rotations_bkgd)
+        for obj_model in self.obj_list:
+            rotations_obj = obj_model.get_rotation
+            rotations.append(rotations_obj)
+        rotations = torch.cat(rotations, dim=0)
+        return rotations
+
     @property
     def get_xyz(self):
-        return self._xyz
+        xyzs = []
+        xyzs.append(self._xyz)
+        for obj_model in self.obj_list:
+            xyzs_obj = obj_model.get_xyz
+            xyzs.append(xyzs_obj)
+        xyzs = torch.cat(xyzs, dim=0)
+        return xyzs
     
     @property
     def get_features(self):
         features_dc = self._features_dc
         features_rest = self._features_rest
-        return torch.cat((features_dc, features_rest), dim=1)
-    
+        features_bkgd = torch.cat((features_dc, features_rest), dim=1)
+
+        features = []
+        features.append(features_bkgd)
+        for obj_model in self.obj_list:
+            feature_obj = obj_model.get_features_fourier()
+            features.append(feature_obj)
+        features = torch.cat(features, dim=0)
+        return features
+
+    @property
+    def get_semantic(self):
+        semantics = []
+        if self.semantic_mode == 'logits':
+            semantic_bkgd = self._semantic
+        else: # 'probabilities':
+            semantic_bkgd = torch.nn.functional.softmax(self._semantic, dim=1)
+        semantics.append(semantic_bkgd)
+        for obj_model in self.obj_list:
+            semantic = obj_model.get_semantic
+            semantics.append(semantic)
+        semantics = torch.cat(semantics, dim=0)
+        return semantics
+
     @property
     def get_opacity(self):
-        return self.opacity_activation(self._opacity)
+        opacity_bkgd = self.opacity_activation(self._opacity)
+        opacities = []
+        opacities.append(opacity_bkgd)
+        for obj_model in self.obj_list:
+            opacity = obj_model.get_opacity
+            opacities.append(opacity)
+        opacities = torch.cat(opacities, dim=0)
+        return opacities
     
     @property
     def get_exposure(self):
@@ -141,7 +206,6 @@ class GaussianModel:
     def oneupSHdegree(self):
         if self.active_sh_degree < self.max_sh_degree:
             self.active_sh_degree += 1
-
 
     def create_from_pcd(
             self, 
@@ -200,19 +264,21 @@ class GaussianModel:
             opacities[:skybox_points] = 0.7
         else: 
             opacities = self.inverse_opacity_activation(0.01 * torch.ones((xyz.shape[0], 1), dtype=torch.float, device="cuda"))
+        semantics = torch.zeros((xyz.shape[0], self.num_classes), dtype=torch.float, device="cuda")
 
         features_dc = features[:,:,0:1].transpose(1, 2).contiguous()
         features_rest = features[:,:,1:].transpose(1, 2).contiguous()
 
         self.scaffold_points = None
         if scaffold_file != "": 
-            scaffold_xyz, features_dc_scaffold, features_extra_scaffold, opacities_scaffold, scales_scaffold, rots_scaffold = self.load_ply_file(scaffold_file + "/point_cloud.ply", 1)
+            scaffold_xyz, features_dc_scaffold, features_extra_scaffold, opacities_scaffold, scales_scaffold, rots_scaffold, semantics_scaffold = self.load_ply_file(scaffold_file + "/point_cloud.ply", 1)
             scaffold_xyz = torch.from_numpy(scaffold_xyz).float()
             features_dc_scaffold = torch.from_numpy(features_dc_scaffold).permute(0, 2, 1).float()
             features_extra_scaffold = torch.from_numpy(features_extra_scaffold).permute(0, 2, 1).float()
             opacities_scaffold = torch.from_numpy(opacities_scaffold).float()
             scales_scaffold = torch.from_numpy(scales_scaffold).float()
             rots_scaffold = torch.from_numpy(rots_scaffold).float()
+            semantics_scaffold = torch.from_numpy(semantics_scaffold).float()
 
             with open(scaffold_file + "/pc_info.txt") as f:
                 skybox_points = int(f.readline())
@@ -248,6 +314,7 @@ class GaussianModel:
             features_rest = torch.concat((filler.cuda(), features_rest))
             scales = torch.concat((scales_scaffold.cuda()[selec], scales))
             rots = torch.concat((rots_scaffold.cuda()[selec], rots))
+            semantics = torch.concat((semantics_scaffold.cuda()[selec], semantics))
             opacities = torch.concat((opacities_scaffold.cuda()[selec], opacities))
 
         self._xyz = nn.Parameter(xyz.requires_grad_(True))
@@ -256,6 +323,7 @@ class GaussianModel:
         self._scaling = nn.Parameter(scales.requires_grad_(True))
         self._rotation = nn.Parameter(rots.requires_grad_(True))
         self._opacity = nn.Parameter(opacities.requires_grad_(True))
+        self._semantic = nn.Parameter(semantics.requires_grad_(True))
         self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda")
 
         self.exposure_mapping = {cam_info.image_name: idx for idx, cam_info in enumerate(cam_infos)}
@@ -276,6 +344,7 @@ class GaussianModel:
             {'params': [self._opacity], 'lr': training_args.opacity_lr, "name": "opacity"},
             {'params': [self._scaling], 'lr': training_args.scaling_lr, "name": "scaling"},
             {'params': [self._rotation], 'lr': training_args.rotation_lr, "name": "rotation"},
+            {'params': [self._semantic], 'lr': training_args.semantic_lr, "name": "semantic"},
         ]
 
         if our_adam:
@@ -290,6 +359,8 @@ class GaussianModel:
                                                     max_steps=training_args.position_lr_max_steps)
         self.exposure_scheduler_args = get_expon_lr_func(training_args.exposure_lr_init, training_args.exposure_lr_final, lr_delay_steps=training_args.exposure_lr_delay_steps, lr_delay_mult=training_args.exposure_lr_delay_mult, max_steps=training_args.iterations)
 
+        for obj_model in self.obj_list:
+            obj_model.training_setup()
        
     def load_ply_file(self, path, degree):
         plydata = PlyData.read(path)
@@ -324,13 +395,19 @@ class GaussianModel:
         for idx, attr_name in enumerate(rot_names):
             rots[:, idx] = np.asarray(plydata.elements[0][attr_name])
 
-        return xyz, features_dc, features_extra, opacities, scales, rots
+        semantic_names = [p.name for p in plydata.elements[0].properties if p.name.startswith("semantic_")]
+        semantic_names = sorted(semantic_names, key = lambda x: int(x.split('_')[-1]))
+        semantic = np.zeros((xyz.shape[0], len(semantic_names)))
+        for idx, attr_name in enumerate(semantic_names):
+            semantic[:, idx] = np.asarray(plydata[attr_name])
+
+        return xyz, features_dc, features_extra, opacities, scales, rots, semantic
 
 
     def create_from_hier(self, path, spatial_lr_scale : float, scaffold_file : str):
         self.spatial_lr_scale = spatial_lr_scale
 
-        xyz, shs_all, alpha, scales, rots, nodes, boxes = load_hierarchy(path)
+        xyz, shs_all, alpha, scales, rots, nodes, boxes, semantics = load_hierarchy(path)
 
         base = os.path.dirname(path)
 
@@ -359,13 +436,14 @@ class GaussianModel:
         #retrieve skybox
         self.skybox_points = 0         
         if scaffold_file != "":
-            scaffold_xyz, features_dc_scaffold, features_extra_scaffold, opacities_scaffold, scales_scaffold, rots_scaffold = self.load_ply_file(scaffold_file + "/point_cloud.ply", 1)
+            scaffold_xyz, features_dc_scaffold, features_extra_scaffold, opacities_scaffold, scales_scaffold, rots_scaffold, semantics_scaffold = self.load_ply_file(scaffold_file + "/point_cloud.ply", 1)
             scaffold_xyz = torch.from_numpy(scaffold_xyz).float()
             features_dc_scaffold = torch.from_numpy(features_dc_scaffold).permute(0, 2, 1).float()
             features_extra_scaffold = torch.from_numpy(features_extra_scaffold).permute(0, 2, 1).float()
             opacities_scaffold = torch.from_numpy(opacities_scaffold).float()
             scales_scaffold = torch.from_numpy(scales_scaffold).float()
             rots_scaffold = torch.from_numpy(rots_scaffold).float()
+            semantics_scaffold = torch.from_numpy(semantics_scaffold).float()
 
             with open(scaffold_file + "/pc_info.txt") as f:
                     skybox_points = int(f.readline())
@@ -374,13 +452,14 @@ class GaussianModel:
 
         if self.skybox_points > 0:
             if scaffold_file != "":
-                skybox_xyz, features_dc_sky, features_rest_sky, opacities_sky, scales_sky, rots_sky = scaffold_xyz[:skybox_points], features_dc_scaffold[:skybox_points], features_extra_scaffold[:skybox_points], opacities_scaffold[:skybox_points], scales_scaffold[:skybox_points], rots_scaffold[:skybox_points]
+                skybox_xyz, features_dc_sky, features_rest_sky, opacities_sky, scales_sky, rots_sky, semantics_sky = scaffold_xyz[:skybox_points], features_dc_scaffold[:skybox_points], features_extra_scaffold[:skybox_points], opacities_scaffold[:skybox_points], scales_scaffold[:skybox_points], rots_scaffold[:skybox_points], semantics_scaffold[:skybox_points]
 
             opacities_sky = torch.sigmoid(opacities_sky)
             xyz = torch.cat((xyz, skybox_xyz))
             alpha = torch.cat((alpha, opacities_sky))
             scales = torch.cat((scales, scales_sky))
             rots = torch.cat((rots, rots_sky))
+            semantics = torch.cat((semantics, semantics_sky))
             filler = torch.zeros(features_dc_sky.size(0), 16, 3)
             filler[:, :1, :] = features_dc_sky
             filler[:, 1:4, :] = features_rest_sky
@@ -392,6 +471,7 @@ class GaussianModel:
         self._opacity = nn.Parameter(alpha.cuda().requires_grad_(True))
         self._scaling = nn.Parameter(scales.cuda().requires_grad_(True))
         self._rotation = nn.Parameter(rots.cuda().requires_grad_(True))
+        self._semantic = nn.Parameter(semantics.cuda().requires_grad_(True))
         self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda")
 
         self.opacity_activation = torch.abs
@@ -428,7 +508,9 @@ class GaussianModel:
                         self._scaling,
                         self._rotation,
                         self.nodes,
-                        self.boxes)
+                        self.boxes,
+                        # self._semantic
+                        )
 
     def update_learning_rate(self, iteration):
         ''' Learning rate scheduling per step '''
@@ -442,6 +524,15 @@ class GaussianModel:
                 param_group['lr'] = lr
                 return lr
 
+        for obj_model in self.obj_list:
+            obj_model.update_learning_rate()
+
+    def update_optimizer(self, relevant):
+        gaussians.optimizer.step(relevant)
+        gaussians.optimizer.zero_grad(set_to_none = True)
+        for obj_model in self.obj_list:
+            obj_model.update_optimizer()
+
     def construct_list_of_attributes(self):
         l = ['x', 'y', 'z', 'nx', 'ny', 'nz']
         # All channels except the 3 DC
@@ -454,6 +545,8 @@ class GaussianModel:
             l.append('scale_{}'.format(i))
         for i in range(self._rotation.shape[1]):
             l.append('rot_{}'.format(i))
+        for i in range(self._semantic.shape[1]):
+            l.append('semantic_{}'.format(i))
         return l
 
     def save_pt(self, path):
@@ -465,6 +558,7 @@ class GaussianModel:
         torch.save(self._opacity.cpu(), os.path.join(path, "done_opacity.pt"))
         torch.save(self._scaling, os.path.join(path, "done_scaling.pt"))
         torch.save(self._rotation, os.path.join(path, "done_rotation.pt"))
+        torch.save(self._semantic, os.path.join(path, "done_semantic.pt"))
 
         import struct
         def load_pt(path):
@@ -474,11 +568,12 @@ class GaussianModel:
             opacity = torch.load(os.path.join(path, "done_opacity.pt")).detach().cpu()
             scaling = torch.load(os.path.join(path, "done_scaling.pt")).detach().cpu()
             rotation = torch.load(os.path.join(path, "done_rotation.pt")).detach().cpu()
+            semantic = torch.load(os.path.join(path, "done_semantic.pt")).detach().cpu()
 
-            return xyz, features_dc, features_rest, opacity, scaling, rotation
+            return xyz, features_dc, features_rest, opacity, scaling, rotation, semantic
 
 
-        xyz, features_dc, features_rest, opacity, scaling, rotation = load_pt(path)
+        xyz, features_dc, features_rest, opacity, scaling, rotation, semantic = load_pt(path)
 
         my_int = xyz.size(0)
         with open(os.path.join(path, "point_cloud.bin"), 'wb') as f:
@@ -490,10 +585,11 @@ class GaussianModel:
             f.write(opacity.numpy().tobytes())
             f.write(scaling.numpy().tobytes())
             f.write(rotation.numpy().tobytes())
-
+            f.write(semantic.numpy().tobytes())
 
     def save_ply(self, path):
         mkdir_p(os.path.dirname(path))
+        plydata_list = []
 
         xyz = self._xyz.detach().cpu().numpy()
         normals = np.zeros_like(xyz)
@@ -502,23 +598,47 @@ class GaussianModel:
         opacities = self._opacity.detach().cpu().numpy()
         scale = self._scaling.detach().cpu().numpy()
         rotation = self._rotation.detach().cpu().numpy()
+        semantic = self._semantic.detach().cpu().numpy()
 
         dtype_full = [(attribute, 'f4') for attribute in self.construct_list_of_attributes()]
 
         elements = np.empty(xyz.shape[0], dtype=dtype_full)
-        attributes = np.concatenate((xyz, normals, f_dc, f_rest, opacities, scale, rotation), axis=1)
+        attributes = np.concatenate((xyz, normals, f_dc, f_rest, opacities, scale, rotation, semantic), axis=1)
         elements[:] = list(map(tuple, attributes))
         el = PlyElement.describe(elements, 'vertex')
-        PlyData([el]).write(path)
+        # PlyData([el]).write(path)
+        plydata_list.append(el)
+
+        for obj_model in self.obj_list:
+            plydata = obj_model.make_ply()
+            model_name = obj_model.get_modelname
+            plydata = PlyElement.describe(plydata, f'vertex_{model_name}')
+            plydata_list.append(plydata)
+
+        PlyData(plydata_list).write(path)
 
     def reset_opacity(self):
         opacities_new = torch.cat((self._opacity[:self.skybox_points], inverse_sigmoid(torch.min(self.get_opacity[self.skybox_points:], torch.ones_like(self.get_opacity[self.skybox_points:])*0.01))), 0)
         #opacities_new = inverse_sigmoid(torch.min(self.get_opacity, torch.ones_like(self.get_opacity)*0.01))
         optimizable_tensors = self.replace_tensor_to_optimizer(opacities_new, "opacity")
         self._opacity = optimizable_tensors["opacity"]
+        for obj_model in self.obj_list:
+            obj_model.reset_opacity()
 
     def load_ply(self, path):
-        xyz, features_dc, features_extra, opacities, scales, rots = self.load_ply_file(path, self.max_sh_degree)
+        # plydata_list = PlyData.read(path).elements
+        # for plydata in plydata_list:
+        #     model_name = plydata.name[7:] # vertex_.....
+        #     if model_name in self.model_name_id.keys():
+        #         print('Loading model', model_name)
+        #         model: GaussianModel = getattr(self, model_name)
+        #         model.load_ply(path=None, input_ply=plydata)
+        #         plydata_list = PlyData.read(path).elements
+        #
+        # self.active_sh_degree = self.max_sh_degree
+
+
+        xyz, features_dc, features_extra, opacities, scales, rots, semantic = self.load_ply_file(path, self.max_sh_degree)
 
         self._xyz = nn.Parameter(torch.tensor(xyz, dtype=torch.float, device="cuda").requires_grad_(True))
         self._features_dc = nn.Parameter(torch.tensor(features_dc, dtype=torch.float, device="cuda").transpose(1, 2).contiguous().requires_grad_(True))
@@ -526,6 +646,7 @@ class GaussianModel:
         self._opacity = nn.Parameter(torch.tensor(opacities, dtype=torch.float, device="cuda").requires_grad_(True))
         self._scaling = nn.Parameter(torch.tensor(scales, dtype=torch.float, device="cuda").requires_grad_(True))
         self._rotation = nn.Parameter(torch.tensor(rots, dtype=torch.float, device="cuda").requires_grad_(True))
+        self._semantic = nn.Parameter(torch.tensor(semantic, dtype=torch.float, device="cuda").requires_grad_(True))
 
         self.active_sh_degree = self.max_sh_degree
 
@@ -572,6 +693,7 @@ class GaussianModel:
         self._opacity = optimizable_tensors["opacity"]
         self._scaling = optimizable_tensors["scaling"]
         self._rotation = optimizable_tensors["rotation"]
+        self._semantic = optimizable_tensors["semantic"]
 
         self.xyz_gradient_accum = self.xyz_gradient_accum[valid_points_mask]
 
@@ -600,13 +722,15 @@ class GaussianModel:
 
         return optimizable_tensors
 
-    def densification_postfix(self, new_xyz, new_features_dc, new_features_rest, new_opacities, new_scaling, new_rotation):
+    def densification_postfix(self, new_xyz, new_features_dc, new_features_rest, new_opacities, new_scaling, new_rotation, new_semantic):
         d = {"xyz": new_xyz,
         "f_dc": new_features_dc,
         "f_rest": new_features_rest,
         "opacity": new_opacities,
         "scaling" : new_scaling,
-        "rotation" : new_rotation}
+        "rotation" : new_rotation,
+             "semantic": new_semantic
+             }
 
         optimizable_tensors = self.cat_tensors_to_optimizer(d)
         self._xyz = optimizable_tensors["xyz"]
@@ -615,6 +739,7 @@ class GaussianModel:
         self._opacity = optimizable_tensors["opacity"]
         self._scaling = optimizable_tensors["scaling"]
         self._rotation = optimizable_tensors["rotation"]
+        self._semantic = optimizable_tensors["semantic"]
 
         self.xyz_gradient_accum = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
         self.denom = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
@@ -645,8 +770,9 @@ class GaussianModel:
         new_features_dc = self._features_dc[selected_pts_mask].repeat(N,1,1)
         new_features_rest = self._features_rest[selected_pts_mask].repeat(N,1,1)
         new_opacity = self._opacity[selected_pts_mask].repeat(N,1)
+        new_semantic = self._semantic[selected_pts_mask].repeat(N, 1)
 
-        self.densification_postfix(new_xyz, new_features_dc, new_features_rest, new_opacity, new_scaling, new_rotation)
+        self.densification_postfix(new_xyz, new_features_dc, new_features_rest, new_opacity, new_scaling, new_rotation, new_semantic)
 
         prune_filter = torch.cat((selected_pts_mask, torch.zeros(N * selected_pts_mask.sum(), device="cuda", dtype=bool)))
         self.prune_points(prune_filter)
@@ -668,10 +794,11 @@ class GaussianModel:
         new_opacities = self._opacity[selected_pts_mask]
         new_scaling = self._scaling[selected_pts_mask]
         new_rotation = self._rotation[selected_pts_mask]
+        new_semantic = self._semantic[selected_pts_mask]
 
-        self.densification_postfix(new_xyz, new_features_dc, new_features_rest, new_opacities, new_scaling, new_rotation)
+        self.densification_postfix(new_xyz, new_features_dc, new_features_rest, new_opacities, new_scaling, new_rotation, new_semantic)
 
-    def densify_and_prune(self, max_grad, min_opacity, extent):
+    def densify_and_prune(self, max_grad, min_opacity, extent, prune_big_points):
         grads = self.xyz_gradient_accum 
         grads[grads.isnan()] = 0.0
 
@@ -686,7 +813,12 @@ class GaussianModel:
 
         self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda")
 
+        for obj_model in self.obj_list:
+            obj_model.reset_opacity()
         torch.cuda.empty_cache()
+
+        for obj_model in self.obj_list:
+            obj_model.densify_and_prune(max_grad, min_opacity, prune_big_points)
 
     def add_densification_stats(self, viewspace_point_tensor, update_filter):
         self.xyz_gradient_accum[update_filter] = torch.max(torch.norm(viewspace_point_tensor.grad[update_filter,:2], dim=-1, keepdim=True), self.xyz_gradient_accum[update_filter])

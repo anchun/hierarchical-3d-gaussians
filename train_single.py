@@ -29,7 +29,7 @@ def direct_collate(x):
 def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, checkpoint, debug_from):
     first_iter = 0
     prepare_output_and_logger(dataset)
-    gaussians = GaussianModel(dataset.sh_degree)
+    gaussians = GaussianModel(dataset.sh_degree, dataset.scene_info.metadata)
     scene = Scene(dataset, gaussians)
     gaussians.training_setup(opt)
     if checkpoint:
@@ -167,7 +167,8 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
                         gaussians.add_densification_stats(viewspace_point_tensor, visibility_filter)
 
                         if iteration > opt.densify_from_iter and iteration % opt.densification_interval == 0:
-                            gaussians.densify_and_prune(opt.densify_grad_threshold, 0.005, scene.cameras_extent)
+                            prune_big_points = iteration > opt.opacity_reset_interval
+                            gaussians.densify_and_prune(opt.densify_grad_threshold, 0.005, scene.cameras_extent, prune_big_points)
                         
                         if iteration % opt.opacity_reset_interval == 0:
                             #print("-----------------RESET OPACITY!-------------")
@@ -189,12 +190,13 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
                         if gaussians._opacity.grad != None:
                             relevant = (gaussians._opacity.grad.flatten() != 0).nonzero()
                             relevant = relevant.flatten().long()
-                            if(relevant.size(0) > 0):
-                                gaussians.optimizer.step(relevant)
-                            else:
-                                gaussians.optimizer.step(relevant)
-                                print("No grads!")
-                            gaussians.optimizer.zero_grad(set_to_none = True)
+                            # if(relevant.size(0) > 0):
+                            #     gaussians.optimizer.step(relevant)
+                            # else:
+                            #     gaussians.optimizer.step(relevant)
+                            #     print("No grads!")
+                            # gaussians.optimizer.zero_grad(set_to_none = True)
+                            gaussians.update_optimizer(relevant)
                     
                     if not args.skip_scale_big_gauss:
                         with torch.no_grad():

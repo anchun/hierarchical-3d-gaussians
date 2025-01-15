@@ -23,6 +23,7 @@ from plyfile import PlyData, PlyElement
 from utils.sh_utils import SH2RGB
 from scene.gaussian_model import BasicPointCloud
 import torch
+import joblib
 
 
 class CameraInfo(NamedTuple):
@@ -42,6 +43,7 @@ class CameraInfo(NamedTuple):
     width: int
     height: int
     is_test: bool
+    metadata: dict
 
 class SceneInfo(NamedTuple):
     point_cloud: BasicPointCloud
@@ -49,6 +51,7 @@ class SceneInfo(NamedTuple):
     test_cameras: list
     nerf_normalization: dict
     ply_path: str
+    scene_info: dict
 
 def getNerfppNorm(cam_info):
     def get_center_and_diag(cam_centers):
@@ -133,10 +136,83 @@ def readColmapCameras(cam_extrinsics, cam_intrinsics, depths_params, images_fold
 
         cam_info = CameraInfo(uid=uid, R=R, T=T, FovY=FovY, FovX=FovX, primx=primx, primy=primy, depth_params=depth_params,
                               image_path=image_path, mask_path=mask_path, depth_path=depth_path, depth_npy_path=depth_npy_path, image_name=image_name, 
-                              width=width, height=height, is_test=image_name in test_cam_names_list)
+                              width=width, height=height, is_test=image_name in test_cam_names_list, metadata=metadata)
         cam_infos.append(cam_info)
     sys.stdout.write('\n')
     return cam_infos
+
+
+def readNOTRCameras(cam_extrinsics, cam_intrinsics, ego_poses, img_id_2_frame_id, img_id_2_extrinsic, depths_params, images_folder, masks_folder, depths_folder, test_cam_names_list, use_npy_depth=False):
+    cam_infos = []
+    for idx, image_id in enumerate(cam_extrinsics):
+        sys.stdout.write('\r')
+        # the exact output you're looking for:
+        sys.stdout.write("Reading camera {}/{}".format(idx+1, len(cam_extrinsics)))
+        sys.stdout.flush()
+        extr = cam_extrinsics[image_id]
+        camera_id = extr.camera_id
+        frame_id = img_id_2_frame_id(image_id)
+        metadata = {}
+        metadata['frame_id'] = frames_id
+        metadata['ego_pose'] = ego_poses[frame_id]
+        metadata['extrinsic'] = img_id_2_extrinsic[image_id]
+        # metadata['timestamp'] = cams_timestamps[i]
+        intr = cam_intrinsics[camera_id]
+        height = intr.height
+        width = intr.width
+
+        uid = intr.id
+        R = np.transpose(qvec2rotmat(extr.qvec))
+        T = np.array(extr.tvec)
+
+        if intr.model=="SIMPLE_PINHOLE":
+            focal_length_x = intr.params[0]
+            primx = float(intr.params[1]) / width
+            primy = float(intr.params[2]) / height
+            FovY = focal2fov(focal_length_x, height)
+            FovX = focal2fov(focal_length_x, width)
+        elif intr.model=="PINHOLE":
+            primx = float(intr.params[2]) / width
+            primy = float(intr.params[3]) / height
+            focal_length_x = intr.params[0]
+            focal_length_y = intr.params[1]
+            FovY = focal2fov(focal_length_y, height)
+            FovX = focal2fov(focal_length_x, width)
+        else:
+            assert False, "Colmap camera model not handled: only undistorted datasets (PINHOLE or SIMPLE_PINHOLE cameras) supported!"
+
+        n_remove = len(extr.name.split('.')[-1]) + 1
+        depth_params = None
+        if depths_params is not None:
+            try:
+                depth_params = depths_params[extr.name[:-n_remove]]
+            except:
+                print("\n", key, "not found in depths_params")
+
+        image_path = os.path.join(images_folder, extr.name)
+        image_name = extr.name
+        if not os.path.exists(image_path):
+            image_path = os.path.join(images_folder, f"{extr.name[:-n_remove]}.jpg")
+            image_name = f"{extr.name[:-n_remove]}.jpg"
+        if not os.path.exists(image_path):
+            image_path = os.path.join(images_folder, f"{extr.name[:-n_remove]}.png")
+            image_name = f"{extr.name[:-n_remove]}.png"
+
+        mask_path = os.path.join(masks_folder, f"{extr.name[:-n_remove]}.png") if masks_folder != "" else ""
+        depth_path = os.path.join(depths_folder, f"{extr.name[:-n_remove]}.png") if depths_folder != "" else ""
+        if use_npy_depth:
+            depth_path = ""
+            depth_npy_path = os.path.join(depths_folder, f"{extr.name[:-n_remove]}.npy") if depths_folder != "" else ""
+        else:
+            depth_npy_path = None
+
+        cam_info = CameraInfo(uid=uid, R=R, T=T, FovY=FovY, FovX=FovX, primx=primx, primy=primy, depth_params=depth_params,
+                              image_path=image_path, mask_path=mask_path, depth_path=depth_path, depth_npy_path=depth_npy_path, image_name=image_name,
+                              width=width, height=height, is_test=image_name in test_cam_names_list, metadata=metadata)
+        cam_infos.append(cam_info)
+    sys.stdout.write('\n')
+    return cam_infos
+
 
 def fetchPly(path):
     plydata = PlyData.read(path)
@@ -273,6 +349,110 @@ def readColmapSceneInfo(path, images, masks, depths, eval, train_test_exp, llffh
     return scene_info
 
 
+def readNOTRSceneInfo(path, images, masks, depths, eval, train_test_exp, llffhold=None, use_npy_depth=False):
+    """
+    scene_meta的组织：以 object_id组织动态对象，每个动态对象包括：
+    {
+        'num_frames': int
+        'timestamps':长为num_frames的float数组，秒级时间戳
+        'img_id_2_frame_id': dict, key为image_id, value为frame_id
+        'ego_poses: 长为num_frames的数组，4*4矩阵
+        'dynamic_objects': dict, key为对象id，values为对象详情
+    }
+    dynamic_object的组织:
+    {
+        'start_frame': int
+        'end_frame': int
+        'deformable: bool
+        'class': str
+        'class_label': int
+        'width', 'height', 'length': int
+        'all_transforms': dict, key为frame_id，value为一行三列的transform(in ego)。每个对象，不一定连续每帧都出现，所以用frame_id为key，表示该frame在任意一个视角出现过
+        'all_rotation_matrixs': 类似all_transforms，值为3*3矩阵
+    }
+    """
+    cameras_extrinsic_file = os.path.join(path, "sparse/0", "images.txt")
+    cam_extrinsics = read_extrinsics_text(cameras_extrinsic_file)
+    cameras_intrinsic_file = os.path.join(path, "sparse/0", "cameras.txt")
+    cam_intrinsics = read_intrinsics_text(cameras_intrinsic_file)
+    depth_params_file = os.path.join(path, "sparse/0", "depth_params.json")
+    ## if depth_params_file isnt there AND depths file is here -> throw error
+    depths_params = None
+    scene_meta = joblib.load(os.path.join(path, "scene_meta.bin"))
+    num_frames = scene_meta['num_frames']
+    img_id_2_frame_id = scene_meta['img_id_2_frame_id']
+    img_id_2_extrinsic = scene_meta['img_id_2_extrinsic']
+    ego_poses = scene_meta['ego_poses']
+    if depths != "" and not use_npy_depth:
+        try:
+            with open(depth_params_file, "r") as f:
+                depths_params = json.load(f)
+            all_scales = np.array([depths_params[key]["scale"] for key in depths_params])
+            if (all_scales > 0).sum():
+                med_scale = np.median(all_scales[all_scales > 0])
+            else:
+                med_scale = 0
+            for key in depths_params:
+                depths_params[key]["med_scale"] = med_scale
+
+        except FileNotFoundError:
+            print(f"Error: depth_params.json file not found at path '{depth_params_file}'.")
+            sys.exit(1)
+        except Exception as e:
+            print(f"An unexpected error occurred when trying to open depth_params.json file: {e}")
+            sys.exit(1)
+
+    ply_path = os.path.join(path, "sparse/0/points3D.ply")
+    bin_path = os.path.join(path, "sparse/0/points3D.bin")
+    txt_path = os.path.join(path, "sparse/0/points3D.txt")
+
+    try:
+        xyz_path = os.path.join(path, "sparse/0/xyz.pt")
+        rgb_path = os.path.join(path, "sparse/0/rgb.pt")
+        pcd = fetchPt(xyz_path, rgb_path)
+    except:
+        if not os.path.exists(ply_path):
+            print("Converting point3d.bin to .ply, will happen only the first time you open the scene.")
+            try:
+                xyz, rgb, _ = read_points3D_binary(bin_path)
+            except:
+                xyz, rgb, _ = read_points3D_text(txt_path)
+            storePly(ply_path, xyz, rgb)
+        pcd = fetchPly(ply_path)
+
+    reading_dir = "images" if images == None else images
+    masks_reading_dir = masks if masks == "" else os.path.join(path, masks)
+
+    cam_infos_unsorted = readNOTRCameras(
+        cam_extrinsics=cam_extrinsics,
+        cam_intrinsics=cam_intrinsics,
+        ego_poses=ego_poses,
+        img_id_2_frame_id=img_id_2_frame_id,
+        img_id_2_extrinsic=img_id_2_extrinsic,
+        depths_params=depths_params,
+        images_folder=os.path.join(path, reading_dir), masks_folder=masks_reading_dir,
+        depths_folder=os.path.join(path, depths) if depths != "" else "", test_cam_names_list=[],
+        use_npy_depth=use_npy_depth)
+    cam_infos = sorted(cam_infos_unsorted.copy(), key=lambda x: x.image_name)
+
+    train_cam_infos = [c for c in cam_infos if train_test_exp or not c.is_test]
+    test_cam_infos = [c for c in cam_infos if c.is_test]
+    print(len(test_cam_infos), "test images")
+    print(len(train_cam_infos), "train images")
+
+    nerf_normalization = getNerfppNorm(train_cam_infos)
+
+    scene_info = SceneInfo(point_cloud=pcd,
+                           train_cameras=train_cam_infos,
+                           test_cameras=test_cam_infos,
+                           nerf_normalization=nerf_normalization,
+                           ply_path=ply_path,
+                           scene_meta=scene_meta
+                           )
+    return scene_info
+
+
 sceneLoadTypeCallbacks = {
     "Colmap": readColmapSceneInfo
+    , "NOTR": readNOTRSceneInfo
 }
