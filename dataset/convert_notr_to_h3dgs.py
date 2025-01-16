@@ -11,6 +11,7 @@ from waymo_open_dataset import label_pb2
 from waymo_open_dataset.utils.frame_utils import *
 from scipy.spatial.transform import Rotation as R
 import joblib
+import cv2
 
 
 # camera_names = ['FRONT','FRONT_LEFT','FRONT_RIGHT','SIDE_LEFT', 'SIDE_RIGHT']
@@ -18,10 +19,10 @@ import joblib
 # camera_ids = {name: idx+1 for idx, name in enumerate(camera_names)}
 
 
-# opencv2camera = np.array([[0., 0., 1., 0.],
-#                         [-1., 0., 0., 0.],
-#                         [0., -1., 0., 0.],
-#                         [0., 0., 0., 1.]])
+opencv2camera = np.array([[0., 0., 1., 0.],
+                        [-1., 0., 0., 0.],
+                        [0., -1., 0., 0.],
+                        [0., 0., 0., 1.]])
 waymo_track2label = {"vehicle": 0, "pedestrian": 1, "cyclist": 2, "sign": 3, "misc": -1}
 
 
@@ -48,10 +49,10 @@ camera_names_dict = {
     dataset_pb2.CameraName.SIDE_LEFT: 'SIDE_LEFT',
     dataset_pb2.CameraName.SIDE_RIGHT: 'SIDE_RIGHT',
 }
-camera_ids = {name: id for id, name in camera_names_dict.items()}
+camera_ids = {name: id - 1 for id, name in camera_names_dict.items()}
 
 def generate_image_name(frame_id, camera_name):
-    return '{}_{}.jpg'.format(camera_name.lower(), frame_id)
+    return '{}/{}.jpg'.format(camera_name.lower(), frame_id)
 
 
 def extract_images(frame_id, image_dir, camera_name, image_array):
@@ -94,7 +95,7 @@ def write_camera_pose_to_colmap(frame_id, camera_name, ego_pose_in_world, camera
     return img_id
 
 
-def extract_points(frame, frame_data_detail, point_cloud, offset):
+def extract_points(frame, frame_data_detail, ego_pose_in_world, point_cloud, offset):
     class SimoneCloudPoint:
         x, y, z = 0.0, 0.0, 0.0
         argb = 0
@@ -123,13 +124,14 @@ def extract_points(frame, frame_data_detail, point_cloud, offset):
             return False
     range_images, camera_projections, _, range_image_top_pose = parse_range_image_and_camera_projection(frame)
     points, _ = convert_range_image_to_point_cloud(frame, range_images, camera_projections, range_image_top_pose)
-    lidar_pose_in_ego = frame_data_detail['FRONT_LIDAR_EXTRINSIC']
-    ego_pose_in_world = frame_data_detail['FRONT_POSE']
-    lidar_pos_in_world = np.dot(ego_pose_in_world, lidar_pose_in_ego)
+    # lidar_pose_in_ego = frame_data_detail['FRONT_LIDAR_EXTRINSIC']
+    lidar_pose_in_ego = np.array(frame.context.laser_calibrations[0].extrinsic.transform).reshape(4,4)
+    # ego_pose_in_world = frame_data_detail['FRONT_POSE']
+    lidar_pose_in_world = np.dot(ego_pose_in_world, lidar_pose_in_ego)
 
     points = np.concatenate([points[0], np.ones((len(points[0]), 1))], axis=1)
-    points = np.dot(lidar_pos_in_world, points.T).T
-    points = points[:, :3] - offset
+    points = np.dot(lidar_pose_in_world, points.T).T
+    # points = points[:, :3] - offset
     # points = np.random.choice(len(points), len(points)//4, replace=False)
     for i,point in enumerate(points):
         if random.randint(0,100)<8:
@@ -137,6 +139,7 @@ def extract_points(frame, frame_data_detail, point_cloud, offset):
             # p.x, p.y, p.z = -point[1], -point[2], point[0]
             p.x, p.y, p.z = point[0], point[1], point[2]
             point_cloud.add(p)
+    return points
 
 def bbox_to_corner3d(bbox):
     min_x, min_y, min_z = bbox[0]
@@ -289,13 +292,55 @@ def convert_and_filter(dynamic_objects):
     return output
 
 
+def project_points_to_image(depth, original_image, output_path):
+    highlight_color = [0, 255, 0]
+    original_image[depth > 0] = np.array(highlight_color, dtype=np.uint8)
+    cv2.imwrite(output_path, original_image)
+
+
+def draw_depth_img(points_in_world, camera_pose_in_world, camera_intrinsic_array, output_path, raw_img_path):
+    # points_in_world = np.hstack([points_in_world, np.ones((points_in_world.shape[0], 1))])
+    points_in_camera = np.dot(np.linalg.inv(camera_pose_in_world), points_in_world.T).T
+
+    points_in_camera = points_in_camera_[:, [1, 2, 0, 3]]
+    fx, fy, cx, cy, width, height = camera_intrinsic_array[3], camera_intrinsic_array[4], camera_intrinsic_array[5], camera_intrinsic_array[6], camera_intrinsic_array[1], camera_intrinsic_array[2]
+    camera_intrinsic = np.array(
+        [[fx, 0, cx, 0],
+         [0, fy, cy, 0],
+         [0, 0, 1, 0]]
+    )
+    points_pixel = np.dot(camera_intrinsic, points_in_camera.T).T
+    uvs = points_pixel/(points_pixel[:,2].reshape(-1, 1))
+    u, v = uvs[:, 0].astype(int), uvs[:, 1].astype(int)
+
+    valid_idx = np.where((u >= 0) & (u < width) & (v >= 0) & (v < height))[0]
+    u, v, depth = u[valid_idx], v[valid_idx], points_in_camera[:, 2][valid_idx]
+    depth = np.maximum(depth, 0)
+    depth_map = np.full((height, width), 0, dtype=np.float32)
+    depth[depth != 0] = 1 / depth[depth != 0]
+
+    depth_map[v, u] = depth
+    depth_map = np.rot90(depth_map, k=2)
+    # np.save(output_path, depth_map)
+
+    original_image = cv2.imread(raw_img_path)
+    project_points_to_image(depth_map, original_image, output_path.replace('npy', 'jpg'))
+    # project_points_to_image(depth_map, original_image, output_path.replace('.npy', f"_{i}{j}{k}.jpg"))
+
+
+def draw_depth_images(points_in_world, frame, frame_id, camera_poses_in_world, camera_intrinsics, image_dir, depth_dir):
+    for i, camera in enumerate(frame.context.camera_calibrations):
+        camera_name = camera_names_dict[camera.name]
+        depth_img_dir = os.path.join(depth_dir, camera_name.lower())
+        raw_img_path = os.path.join(image_dir, camera_name.lower(), str(frame_id) + '.jpg')
+        draw_depth_img(points_in_world, camera_poses_in_world[camera_name], camera_intrinsics[camera_name],os.path.join(depth_img_dir, str(frame_id) + '.npy'), raw_img_path)
+
+
 def extract_waymo_scene(input_path, output_dir):
-    image_dir = os.path.join(output_dir, 'raw_images')
-    if not os.path.exists(image_dir):
-        os.makedirs(image_dir)
+    image_dir = os.path.join(output_dir, 'images')
+    depth_dir = os.path.join(output_dir, 'depths')
     colmap_sparse_model_dir = os.path.join(output_dir, 'sparse/0')
-    if not os.path.exists(colmap_sparse_model_dir):
-        os.makedirs(colmap_sparse_model_dir)
+    os.makedirs(colmap_sparse_model_dir, exist_ok=True)
     dataset = tf.data.TFRecordDataset(input_path)
     colmap_images_file = open(os.path.join(colmap_sparse_model_dir, "images.txt"), 'w')
     first_frame_pos = None
@@ -307,8 +352,14 @@ def extract_waymo_scene(input_path, output_dir):
     dynamic_objects = []
     point_cloud = set()
     num_frames = 0
+    for camera_name in camera_names_dict.values():
+        os.makedirs(os.path.join(image_dir, camera_name.lower()), exist_ok=True)
+        os.makedirs(os.path.join(depth_dir, camera_name.lower()), exist_ok=True)
+
     for frame_id, raw_frame in tqdm(enumerate(dataset), total=199):
-        frame_image_names = {}
+        # if frame_id >= 1:
+        #     break
+        # frame_image_names = {}
         frame = dataset_pb2.Frame()
         frame.ParseFromString(bytearray(raw_frame.numpy()))
         ego_pose = np.array(frame.pose.transform).reshape(4, 4)
@@ -317,23 +368,27 @@ def extract_waymo_scene(input_path, output_dir):
         ego_poses.append(ego_pose)
         ego_pose[:3, 3] = ego_pose[:3, 3] - first_frame_pos
         timestamps.append(frame.timestamp_micros / 1e6)
+        camera_poses_in_world = {}
         for i, camera in enumerate(frame.context.camera_calibrations):
             camera_name = camera_names_dict[camera.name]
             more_camera_detail = get_content_from_list(frame.images, camera.name)
-            camera_timestamp = more_camera_detail.pose_timestamp
+            # camera_timestamp = more_camera_detail.pose_timestamp
             extract_images(frame_id, image_dir, camera_name, more_camera_detail.image)
             intrinsic = camera.intrinsic
             camera_intrinsics[camera_name] = ['PINHOLE', camera.width, camera.height, intrinsic[0], intrinsic[1], intrinsic[2],intrinsic[3]]
             extrinsic = np.array(camera.extrinsic.transform).reshape(4, 4)
             # extrinsic = np.matmul(extrinsic, opencv2camera) # [forward, left, up] to [right, down, forward]
-            camera_pose = np.array(more_camera_detail.pose.transform).reshape(4, 4)
-            camera_pose[:3, 3] = camera_pose[:3, 3] - first_frame_pos
-            frame_image_names[camera_name] = generate_image_name(frame_id, camera_name)
+            camera_pose = np.dot(ego_pose, extrinsic) #np.array(more_camera_detail.pose.transform).reshape(4, 4)
+            # camera_pose[:3, 3] = camera_pose[:3, 3] - first_frame_pos
+            camera_poses_in_world[camera_name] = camera_pose
+            # frame_image_names[camera_name] = generate_image_name(frame_id, camera_name)
             image_id = write_camera_pose_to_colmap(frame_id, camera_name, ego_pose, extrinsic, colmap_images_file)
             img_id_2_frame_id[image_id] = frame_id
             img_id_2_extrinsic[image_id] = extrinsic
+        # detail = convert_frame_to_dict(frame)
+        points_in_world = extract_points(frame, None, ego_pose, point_cloud, first_frame_pos)
+        # draw_depth_images(points_in_world, frame, frame_id, camera_poses_in_world, camera_intrinsics, image_dir, depth_dir)
         parse_dynamic_objects(frame_id, frame, dynamic_objects)
-        # extract_points(frame, convert_frame_to_dict(frame), point_cloud, first_frame_pos)
         num_frames = num_frames + 1
     colmap_images_file.flush()
     colmap_images_file.close()
@@ -343,12 +398,12 @@ def extract_waymo_scene(input_path, output_dir):
             output = '{} {} {} {} {} {} {} {} \n'.format(camera_id, intrinsic[0], intrinsic[1], intrinsic[2], intrinsic[3], intrinsic[4], intrinsic[5], intrinsic[6])
             camera_intrinsic_file.write(output)
 
-    # with open(colmap_sparse_model_dir + "/points3D.txt","w") as output:
-    #     for i, p in enumerate(point_cloud):
-    #         r=random.randint(0,255)
-    #         g=random.randint(0,255)
-    #         b=random.randint(0,255)
-    #         output.write(" ".join([str(c) for c in [i + 1, p.x, p.y, p.z, r, g, b, 0.01, 1, 0, 2, 0, 3,0]]) + "\n")  # rgb后面的几个值是fake的，3DGS中没用。这里为了让colmap gui加载时不崩溃
+    with open(colmap_sparse_model_dir + "/points3D.txt","w") as output:
+        for i, p in tqdm(enumerate(point_cloud), total=len(point_cloud)):
+            r=random.randint(0,255)
+            g=random.randint(0,255)
+            b=random.randint(0,255)
+            output.write(" ".join([str(c) for c in [i + 1, p.x, p.y, p.z, r, g, b, 0.01, 1, 0, 2, 0, 3,0]]) + "\n")  # rgb后面的几个值是fake的，3DGS中没用。这里为了让colmap gui加载时不崩溃
     dynamic_objects = convert_and_filter(dynamic_objects)
     scene_meta = {'timestamps': timestamps, 'ego_poses': ego_poses, 'dynamic_objects': dynamic_objects, 'num_frames': num_frames,
                   'img_id_2_frame_id':img_id_2_frame_id, 'img_id_2_extrinsic': img_id_2_extrinsic}
@@ -357,7 +412,8 @@ def extract_waymo_scene(input_path, output_dir):
 
 if __name__ == '__main__':
     # tf.enable_eager_execution()
-    input_path = r'D:\Projects\51sim-ai\EmerNeRF\data\waymo\raw/segment-10588771936253546636_2300_000_2320_000_with_camera_labels.tfrecord'
-    out_dir = r'D:\Projects\51sim-ai\EmerNeRF\data\waymo/processed/031'
+    # input_path = r'D:\Projects\51sim-ai\EmerNeRF\data\waymo\raw/segment-10588771936253546636_2300_000_2320_000_with_camera_labels.tfrecord'
+    input_path = r'D:\Projects\51sim-ai\EmerNeRF\data\waymo\raw/segment-11017034898130016754_697_830_717_830_with_camera_labels.tfrecord'
+    out_dir = r'D:\Projects\51sim-ai\EmerNeRF\data\waymo/processed/053'
     os.makedirs(out_dir, exist_ok=True)
     extract_waymo_scene(input_path, out_dir)

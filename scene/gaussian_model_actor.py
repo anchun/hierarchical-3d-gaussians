@@ -313,7 +313,7 @@ class GaussianModelActor(GaussianModel):
         features = torch.cat([features_dc, features_rest], dim=1) # [N, (sh + 1) * C, 3]
         return features
            
-    def create_from_pcd(self, spatial_lr_scale):
+    def create_from_pcd(self):
         pointcloud_path = os.path.join(cfg.model_path, 'input_ply', f'points3D_{self.model_name}.ply')   
         if os.path.exists(pointcloud_path):
             pcd = fetchPly(pointcloud_path)

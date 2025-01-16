@@ -332,6 +332,9 @@ class GaussianModel:
         self._exposure = nn.Parameter(exposure.requires_grad_(True))
         print("Number of points at initialisation : ", self._xyz.shape[0])
 
+        for obj_model in self.obj_list:
+            obj_model.create_from_pcd()
+
     def training_setup(self, training_args, our_adam=True):
         self.percent_dense = training_args.percent_dense
         self.xyz_gradient_accum = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
