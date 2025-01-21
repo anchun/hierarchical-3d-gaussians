@@ -64,8 +64,9 @@ def update_db_for_colmap_models(db, model_path):
             cx_ratio = abs(cx * 2 / w - 1)
             cy_ratio = abs(cy * 2 / h - 1)
             if cx_ratio > 0.1 or cy_ratio > 0.1:
-                print("cx or cy value invalid!")
-                sys.exit(-1)
+                pass
+                #print("cx or cy value invalid!")
+                #sys.exit(-1)
             camera_ids.append(camera_id)
             camera_images[camera_id] = []
             db.add_camera(camModelDict[camera_model], w, h, params, prior_focal_length=True, camera_id=camera_id)

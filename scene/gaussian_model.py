@@ -23,6 +23,8 @@ from utils.graphics_utils import BasicPointCloud
 from utils.general_utils import strip_symmetric, build_scaling_rotation
 from gaussian_hierarchy._C import load_hierarchy, write_hierarchy
 from scene.OurAdam import Adam
+from scene.cameras import Camera
+from scene import GaussianModelActor
 
 class GaussianModel:
 
@@ -45,12 +47,13 @@ class GaussianModel:
 
         # Build object model
         self.obj_list = []
-        self.model_name_id = bidict()
-        if 'dynamic_objects' in self.metadata.keys() and len(self.metadata['dynamic_objects'] > 0):
-            for object_id, obj_meta in self.obj_info.items():
+        #self.model_name_id = bidict()
+        if self.metadata is not None and 'dynamic_objects' in self.metadata.keys() and len(self.metadata['dynamic_objects']) > 0:
+            obj_info = self.metadata['dynamic_objects']
+            for object_id, obj_meta in obj_info.items():
                 model_name = f'obj_{object_id:03d}'
                 setattr(self, model_name, GaussianModelActor(model_name=model_name, obj_meta=obj_meta, num_frames=self.metadata['num_frames']))
-                self.model_name_id[model_name] = self.models_num
+                #self.model_name_id[model_name] = self.models_num
                 self.obj_list.append(model_name)
                 # self.models_num += 1
 
@@ -609,11 +612,11 @@ class GaussianModel:
         # PlyData([el]).write(path)
         plydata_list.append(el)
 
-        for obj_model in self.obj_list:
-            plydata = obj_model.make_ply()
-            model_name = obj_model.get_modelname
-            plydata = PlyElement.describe(plydata, f'vertex_{model_name}')
-            plydata_list.append(plydata)
+        #for obj_model in self.obj_list:
+        #    plydata = obj_model.make_ply()
+        #    model_name = obj_model.get_modelname
+        #    plydata = PlyElement.describe(plydata, f'vertex_{model_name}')
+        #    plydata_list.append(plydata)
 
         PlyData(plydata_list).write(path)
 

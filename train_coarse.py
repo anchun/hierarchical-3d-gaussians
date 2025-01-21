@@ -15,6 +15,7 @@ from utils.loss_utils import l1_loss, ssim
 from gaussian_renderer import render_coarse, network_gui
 import sys
 from scene import Scene, GaussianModel
+from scene.dataset_readers import sceneLoadTypeCallbacks
 from utils.general_utils import safe_state
 import uuid
 from tqdm import tqdm
@@ -28,8 +29,13 @@ def direct_collate(x):
 def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, checkpoint, debug_from):
     first_iter = 0
     prepare_output_and_logger(dataset)
-    gaussians = GaussianModel(1, dataset.scene_info.metadata)
-    scene = Scene(dataset, gaussians)
+    if os.path.exists(os.path.join(args.source_path, "sparse")):
+        scene_info = sceneLoadTypeCallbacks["NOTR"](args.source_path, args.images, args.alpha_masks, args.depths, args.eval, args.train_test_exp, None, args.use_npy_depth)
+    else:
+        assert False, "Could not recognize scene type!"
+
+    gaussians = GaussianModel(1, scene_info.scene_meta)
+    scene = Scene(dataset, scene_info, gaussians)
     gaussians.training_setup(opt)
     if checkpoint:
         (model_params, first_iter) = torch.load(checkpoint)

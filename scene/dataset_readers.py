@@ -51,7 +51,7 @@ class SceneInfo(NamedTuple):
     test_cameras: list
     nerf_normalization: dict
     ply_path: str
-    scene_info: dict
+    scene_meta: dict
 
 def getNerfppNorm(cam_info):
     def get_center_and_diag(cam_centers):
@@ -151,9 +151,9 @@ def readNOTRCameras(cam_extrinsics, cam_intrinsics, ego_poses, img_id_2_frame_id
         sys.stdout.flush()
         extr = cam_extrinsics[image_id]
         camera_id = extr.camera_id
-        frame_id = img_id_2_frame_id(image_id)
+        frame_id = img_id_2_frame_id[image_id]
         metadata = {}
-        metadata['frame_id'] = frames_id
+        metadata['frame_id'] = frame_id
         metadata['ego_pose'] = ego_poses[frame_id]
         metadata['extrinsic'] = img_id_2_extrinsic[image_id]
         # metadata['timestamp'] = cams_timestamps[i]
@@ -371,10 +371,21 @@ def readNOTRSceneInfo(path, images, masks, depths, eval, train_test_exp, llffhol
         'all_rotation_matrixs': 类似all_transforms，值为3*3矩阵
     }
     """
-    cameras_extrinsic_file = os.path.join(path, "sparse/0", "images.txt")
-    cam_extrinsics = read_extrinsics_text(cameras_extrinsic_file)
-    cameras_intrinsic_file = os.path.join(path, "sparse/0", "cameras.txt")
-    cam_intrinsics = read_intrinsics_text(cameras_intrinsic_file)
+    try:
+        cameras_extrinsic_file = os.path.join(path, "sparse/0", "images.bin")
+        cameras_intrinsic_file = os.path.join(path, "sparse/0", "cameras.bin")
+        cam_extrinsics = read_extrinsics_binary(cameras_extrinsic_file)
+        cam_intrinsics = read_intrinsics_binary(cameras_intrinsic_file)
+    except:
+        cameras_extrinsic_file = os.path.join(path, "sparse/0", "images.txt")
+        cameras_intrinsic_file = os.path.join(path, "sparse/0", "cameras.txt")
+        cam_extrinsics = read_extrinsics_text(cameras_extrinsic_file)
+        cam_intrinsics = read_intrinsics_text(cameras_intrinsic_file)
+
+    #cameras_extrinsic_file = os.path.join(path, "sparse/0", "images.txt")
+    #cam_extrinsics = read_extrinsics_text(cameras_extrinsic_file)
+    #cameras_intrinsic_file = os.path.join(path, "sparse/0", "cameras.txt")
+    #cam_intrinsics = read_intrinsics_text(cameras_intrinsic_file)
     depth_params_file = os.path.join(path, "sparse/0", "depth_params.json")
     ## if depth_params_file isnt there AND depths file is here -> throw error
     depths_params = None

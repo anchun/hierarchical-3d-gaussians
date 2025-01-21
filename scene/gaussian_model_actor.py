@@ -2,11 +2,10 @@ import torch
 import torch.nn as nn
 import numpy as np
 import os
-from lib.config import cfg
-from lib.models.gaussian_model import GaussianModel
-from lib.utils.general_utils import quaternion_to_matrix, inverse_sigmoid, matrix_to_quaternion, get_expon_lr_func, quaternion_raw_multiply
-from lib.utils.sh_utils import RGB2SH, IDFT
-from lib.datasets.base_readers import fetchPly
+#from lib.config import cfg
+#from lib.utils.general_utils import quaternion_to_matrix, inverse_sigmoid, matrix_to_quaternion, get_expon_lr_func, quaternion_raw_multiply
+#from lib.utils.sh_utils import RGB2SH, IDFT
+#from lib.datasets.base_readers import fetchPly
 from plyfile import PlyData, PlyElement
 from simple_knn._C import distCUDA2
 from read_write_model import rotmat2qvec
@@ -78,7 +77,7 @@ def correct_gaussian_rotation(camera, rotation):
     return rotation
 
 
-class GaussianModelActor(GaussianModel):
+class GaussianModelActor():
     def __init__(
         self, 
         model_name, 
