@@ -6,11 +6,27 @@ import os
 #from lib.utils.general_utils import quaternion_to_matrix, inverse_sigmoid, matrix_to_quaternion, get_expon_lr_func, quaternion_raw_multiply
 #from lib.utils.sh_utils import RGB2SH, IDFT
 #from lib.datasets.base_readers import fetchPly
+from utils.sh_utils import RGB2SH
 from utils.general_utils import inverse_sigmoid, get_expon_lr_func
 from plyfile import PlyData, PlyElement
 from simple_knn._C import distCUDA2
 from preprocess.read_write_model import rotmat2qvec
 from scene.cameras import Camera
+
+
+
+def IDFT(time, dim):
+    if isinstance(time, float):
+        time = torch.tensor(time)
+        t = time.view(-1, 1).float()
+        idft = torch.zeros(t.shape[0], dim)
+        indices = torch.arange(dim)
+        even_indices = indices[::2]
+        odd_indices = indices[1::2]
+        idft[:, even_indices] = torch.cos(torch.pi * t * even_indices)
+        idft[:, odd_indices] = torch.sin(torch.pi * t * (odd_indices + 1))
+        return idft
+
 
 
 def quaternion_raw_multiply(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
@@ -79,6 +95,79 @@ def correct_gaussian_rotation(camera, rotation):
     return rotation
 
 
+def _sqrt_positive_part(x: torch.Tensor) -> torch.Tensor:
+    """
+    Returns torch.sqrt(torch.max(0, x))
+    but with a zero subgradient where x is 0.
+    """
+    ret = torch.zeros_like(x)
+    positive_mask = x > 0
+    ret[positive_mask] = torch.sqrt(x[positive_mask])
+    return ret
+
+
+def matrix_to_quaternion(matrix: torch.Tensor) -> torch.Tensor:
+    """
+    Convert rotations given as rotation matrices to quaternions.
+
+    Args:
+        matrix: Rotation matrices as tensor of shape (..., 3, 3).
+
+    Returns:
+        quaternions with real part first, as tensor of shape (..., 4).
+    """
+    if matrix.size(-1) != 3 or matrix.size(-2) != 3:
+        raise ValueError(f"Invalid rotation matrix shape {matrix.shape}.")
+
+    batch_dim = matrix.shape[:-2]
+    m00, m01, m02, m10, m11, m12, m20, m21, m22 = torch.unbind(
+        matrix.reshape(batch_dim + (9,)), dim=-1
+    )
+
+    q_abs = _sqrt_positive_part(
+        torch.stack(
+            [
+                1.0 + m00 + m11 + m22,
+                1.0 + m00 - m11 - m22,
+                1.0 - m00 + m11 - m22,
+                1.0 - m00 - m11 + m22,
+            ],
+            dim=-1,
+        )
+    )
+
+    # we produce the desired quaternion multiplied by each of r, i, j, k
+    quat_by_rijk = torch.stack(
+        [
+            # pyre-fixme[58]: `**` is not supported for operand types `Tensor` and
+            #  `int`.
+            torch.stack([q_abs[..., 0] ** 2, m21 - m12, m02 - m20, m10 - m01], dim=-1),
+            # pyre-fixme[58]: `**` is not supported for operand types `Tensor` and
+            #  `int`.
+            torch.stack([m21 - m12, q_abs[..., 1] ** 2, m10 + m01, m02 + m20], dim=-1),
+            # pyre-fixme[58]: `**` is not supported for operand types `Tensor` and
+            #  `int`.
+            torch.stack([m02 - m20, m10 + m01, q_abs[..., 2] ** 2, m12 + m21], dim=-1),
+            # pyre-fixme[58]: `**` is not supported for operand types `Tensor` and
+            #  `int`.
+            torch.stack([m10 - m01, m20 + m02, m21 + m12, q_abs[..., 3] ** 2], dim=-1),
+        ],
+        dim=-2,
+    )
+
+    # We floor here at 0.1 but the exact level is not important; if q_abs is small,
+    # the candidate won't be picked.
+    flr = torch.tensor(0.1).to(dtype=q_abs.dtype, device=q_abs.device)
+    quat_candidates = quat_by_rijk / (2.0 * q_abs[..., None].max(flr))
+
+    # if not for numerical problems, quat_candidates[i] should be same (up to a sign),
+    # forall i; we pick the best-conditioned one (with the largest denominator)
+
+    return quat_candidates[
+        torch.nn.functional.one_hot(q_abs.argmax(dim=-1), num_classes=4) > 0.5, :
+    ].reshape(batch_dim + (4,))
+
+
 class GaussianModelActor():
     def __init__(
         self, 
@@ -90,7 +179,7 @@ class GaussianModelActor():
         self.model_name = model_name
 
         # semantic
-        # self.num_classes = num_classes
+        self.num_classes = 1 # TODO
         # self.semantic_mode = cfg_model.get('semantic_mode', 'logits')
         # assert self.semantic_mode in ['logits', 'probabilities']
         self.semantic_mode = 'logits'
@@ -169,6 +258,7 @@ class GaussianModelActor():
         self.delta_transforms_in_ego = torch.nn.Parameter(torch.zeros_like(self.transforms_in_ego).float().cuda()).requires_grad_(True)
         self.delta_rotations_in_ego = torch.nn.Parameter(torch.stack([torch.tensor([1, 0, 0, 0])] * num_frames).float().cuda()).requires_grad_(True)
         self.viewpoint_camera = None # 训练时渲染用，用于计算动态信息
+        self.max_sh_degree = 1 # TODO 什么用途？
 
     def setup_functions(self):
         def build_covariance_from_scaling_rotation(scaling, scaling_modifier, rotation):
@@ -248,12 +338,13 @@ class GaussianModelActor():
         frame_id = self.viewpoint_camera.metadata['frame_id']
         ego_pose_in_world = self.viewpoint_camera.ego_pose
 
-        # 1. fix object pose with learnable delta (in ego coordinate)
+        # 1. fix object pose with learnable delta (in ego coordinate)A
         obj_transform_in_ego = self.transforms_in_ego[frame_id] + self.delta_transforms_in_ego[frame_id]
         obj_rotation_in_ego = quaternion_raw_multiply(self.rotations_in_ego[frame_id].unsqueeze(0), self.delta_rotations_in_ego[frame_id].unsqueeze(0)).squeeze(0)
 
         # 2. transform object pose to world coordinate
         ego_rotation_in_world = matrix_to_quaternion(ego_pose_in_world[:3, :3].unsqueeze(0)).squeeze(0)
+        print('==== self.viewpoint_camera.ego_pose.device', self.viewpoint_camera.ego_pose.device)
         obj_rotation_in_world = quaternion_raw_multiply(ego_rotation_in_world.unsqueeze(0), obj_rotation_in_ego.unsqueeze(0)).squeeze(0)
         obj_transform_in_world = ego_pose_in_world[:3, :3] @ obj_transform_in_ego + ego_pose_in_world[:3, 3]
 
@@ -318,8 +409,8 @@ class GaussianModelActor():
         return features
            
     def create_from_pcd(self, spatial_lr_scale):
-        pointcloud_path = os.path.join(cfg.model_path, 'input_ply', f'points3D_{self.model_name}.ply')   
-        if os.path.exists(pointcloud_path):
+        #pointcloud_path = os.path.join(cfg.model_path, 'input_ply', f'points3D_{self.model_name}.ply')   
+        if False: # os.path.exists(pointcloud_path): TODO
             pcd = fetchPly(pointcloud_path)
             pointcloud_xyz = np.asarray(pcd.points)
             if pointcloud_xyz.shape[0] < 2000:
@@ -384,17 +475,17 @@ class GaussianModelActor():
 
         opacities = inverse_sigmoid(0.1 * torch.ones((fused_point_cloud.shape[0], 1))).float().cuda()
         semantics = torch.zeros((fused_point_cloud.shape[0], self.num_classes)).float().cuda()
-        self._xyz = nn.Parameter(fused_point_cloud.requires_grad_(True))
+        self._xyz = nn.Parameter(fused_point_cloud.cuda().requires_grad_(True))
         
         # self._features_dc = nn.Parameter(features[:, :, :self.fourier_dim].transpose(1, 2).contiguous().requires_grad_(True))
         # self._features_rest = nn.Parameter(features[:, :, self.fourier_dim:].transpose(1, 2).contiguous().requires_grad_(True))
-        self._features_dc = nn.Parameter(features_dc.transpose(1, 2).contiguous().requires_grad_(True))
-        self._features_rest = nn.Parameter(features_rest.transpose(1, 2).contiguous().requires_grad_(True))
+        self._features_dc = nn.Parameter(features_dc.cuda().transpose(1, 2).contiguous().requires_grad_(True))
+        self._features_rest = nn.Parameter(features_rest.cuda().transpose(1, 2).contiguous().requires_grad_(True))
         
-        self._scaling = nn.Parameter(scales.requires_grad_(True))
-        self._rotation = nn.Parameter(rots.requires_grad_(True))
-        self._opacity = nn.Parameter(opacities.requires_grad_(True))
-        self._semantic = nn.Parameter(semantics.requires_grad_(True))
+        self._scaling = nn.Parameter(scales.cuda().requires_grad_(True))
+        self._rotation = nn.Parameter(rots.cuda().requires_grad_(True))
+        self._opacity = nn.Parameter(opacities.cuda().requires_grad_(True))
+        self._semantic = nn.Parameter(semantics.cuda().requires_grad_(True))
         self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda")
 
     def make_ply(self):
@@ -521,43 +612,32 @@ class GaussianModelActor():
 
         return state_dict
 
-    def training_setup(self):
-        args = cfg.optim
-
+    def training_setup(self, training_args):
         self.xyz_gradient_accum = torch.zeros((self.get_xyz.shape[0], 2), device="cuda")
         self.denom = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
         self.active_sh_degree = 0
-                
-        tag = 'obj'
-        position_lr_init = args.get('position_lr_init_{}'.format(tag), args.position_lr_init)
-        position_lr_final = args.get('position_lr_final_{}'.format(tag), args.position_lr_final)
-        scaling_lr = args.get('scaling_lr_{}'.format(tag), args.scaling_lr)
-        feature_lr = args.get('feature_lr_{}'.format(tag), args.feature_lr)
-        # semantic_lr = args.get('semantic_lr_{}'.format(tag), args.semantic_lr)
-        rotation_lr = args.get('rotation_lr_{}'.format(tag), args.rotation_lr)
-        opacity_lr = args.get('opacity_lr_{}'.format(tag), args.opacity_lr)
-        feature_rest_lr = args.get('feature_rest_lr_{}'.format(tag), feature_lr / 20.0)
 
+        # TODO lr of objs must not the same as background
         l = [
-            {'params': [self._xyz], 'lr': position_lr_init * self.spatial_lr_scale, "name": "xyz"},
-            {'params': [self._features_dc], 'lr': feature_lr, "name": "f_dc"},
-            {'params': [self._features_rest], 'lr': feature_rest_lr, "name": "f_rest"},
-            {'params': [self._opacity], 'lr': opacity_lr, "name": "opacity"},
-            {'params': [self._scaling], 'lr': scaling_lr, "name": "scaling"},
-            {'params': [self._rotation], 'lr': rotation_lr, "name": "rotation"},
+            {'params': [self._xyz], 'lr': training_args.position_lr_init * self.spatial_lr_scale, "name": "xyz"},
+            {'params': [self._features_dc], 'lr': training_args.feature_lr, "name": "f_dc"},
+            {'params': [self._features_rest], 'lr': training_args.feature_lr, "name": "f_rest"},
+            {'params': [self._opacity], 'lr': training_args.opacity_lr, "name": "opacity"},
+            {'params': [self._scaling], 'lr': training_args.scaling_lr, "name": "scaling"},
+            {'params': [self._rotation], 'lr': training_args.rotation_lr, "name": "rotation"},
             {'params': [self.delta_transforms_in_ego], 'lr': 0.005, "name": "delta_transform"},
             {'params': [self.delta_rotations_in_ego], 'lr': 0.001, "name": "delta_rotation"},
-            # {'params': [self._semantic], 'lr': semantic_lr, "name": "semantic"},
+            # {'params': [self._semantic], 'lr': training_args.semantic_lr, "name": "semantic"},
         ]
         
-        self.percent_dense = args.percent_dense
-        self.percent_big_ws = args.percent_big_ws
+        self.percent_dense = training_args.percent_dense
+        self.percent_big_ws = 0.1 # training_args.percent_big_ws
         self.optimizer = torch.optim.Adam(l, lr=0.0, eps=1e-15)
         self.xyz_scheduler_args = get_expon_lr_func(
-            lr_init=position_lr_init * self.spatial_lr_scale,
-            lr_final=position_lr_final * self.spatial_lr_scale,
-            lr_delay_mult=args.position_lr_delay_mult,
-            max_steps=args.position_lr_max_steps
+            lr_init=training_args.position_lr_init * self.spatial_lr_scale,
+            lr_final=training_args.position_lr_final * self.spatial_lr_scale,
+            lr_delay_mult=training_args.position_lr_delay_mult,
+            max_steps=training_args.position_lr_max_steps
         )
         
         self.densify_and_prune_list = ['xyz, f_dc, f_rest, opacity, scaling, rotation, semantic']
