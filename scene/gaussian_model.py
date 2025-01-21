@@ -24,7 +24,7 @@ from utils.general_utils import strip_symmetric, build_scaling_rotation
 from gaussian_hierarchy._C import load_hierarchy, write_hierarchy
 from scene.OurAdam import Adam
 from scene.cameras import Camera
-from scene import GaussianModelActor
+from scene.gaussian_model_actor import GaussianModelActor
 
 class GaussianModel:
 
@@ -52,9 +52,10 @@ class GaussianModel:
             obj_info = self.metadata['dynamic_objects']
             for object_id, obj_meta in obj_info.items():
                 model_name = f'obj_{object_id:03d}'
-                setattr(self, model_name, GaussianModelActor(model_name=model_name, obj_meta=obj_meta, num_frames=self.metadata['num_frames']))
+                obj_model = GaussianModelActor(model_name=model_name, obj_meta=obj_meta, num_frames=self.metadata['num_frames'])
+                setattr(self, model_name, obj_model)
                 #self.model_name_id[model_name] = self.models_num
-                self.obj_list.append(model_name)
+                self.obj_list.append(obj_model)
                 # self.models_num += 1
 
 

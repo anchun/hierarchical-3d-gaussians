@@ -6,9 +6,11 @@ import os
 #from lib.utils.general_utils import quaternion_to_matrix, inverse_sigmoid, matrix_to_quaternion, get_expon_lr_func, quaternion_raw_multiply
 #from lib.utils.sh_utils import RGB2SH, IDFT
 #from lib.datasets.base_readers import fetchPly
+from utils.general_utils import inverse_sigmoid, get_expon_lr_func
 from plyfile import PlyData, PlyElement
 from simple_knn._C import distCUDA2
-from read_write_model import rotmat2qvec
+from preprocess.read_write_model import rotmat2qvec
+from scene.cameras import Camera
 
 
 def quaternion_raw_multiply(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
@@ -84,13 +86,14 @@ class GaussianModelActor():
         obj_meta=None,
         num_frames=None,
     ):
-        cfg_model = cfg.model.gaussian
+        #cfg_model = cfg.model.gaussian
         self.model_name = model_name
 
         # semantic
         # self.num_classes = num_classes
         # self.semantic_mode = cfg_model.get('semantic_mode', 'logits')
         # assert self.semantic_mode in ['logits', 'probabilities']
+        self.semantic_mode = 'logits'
 
         # spherical harmonics
         self.active_sh_degree = 1
@@ -130,18 +133,18 @@ class GaussianModelActor():
         for frame_id in obj_meta['all_transforms'].keys():
             t = np.array(obj_meta['all_transforms'][frame_id])
             r = np.array(obj_meta['all_rotation_matrixs'][frame_id])
-            all_transforms[frame_id] = t
-            all_rotations[frame_id] = rotmat2qvec(r)
+            all_transforms[int(frame_id)] = t
+            all_rotations[int(frame_id)] = rotmat2qvec(r)
             # pose = np.concatenate([t, r], axis=1)
             # pose = np.concatenate([pose, [0,0,0,1]], axis=0)
             # all_poses[frame_id] = pose
         self.transforms_in_ego = torch.from_numpy(all_transforms).float().cuda()  # 冗余存储，其中每个动态物不一定在每一帧都出现
-        self.rotations_in_ego = torch.from_numpy(all_rotation_matrixs).float().cuda()
+        self.rotations_in_ego = torch.from_numpy(all_rotations).float().cuda()
         # self.pose_in_ego = torch.from_numpy(all_rotation_matrixs).float().cuda()
 
         # fourier spherical harmonics
-        self.fourier_dim = cfg.model.gaussian.get('fourier_dim', 1)
-        self.fourier_scale = cfg.model.gaussian.get('fourier_scale', 1.)
+        self.fourier_dim = 1 #cfg.model.gaussian.get('fourier_dim', 1)
+        self.fourier_scale = 1 #cfg.model.gaussian.get('fourier_scale', 1.)
         
         # bbox
         length, width, height = obj_meta['length'], obj_meta['width'], obj_meta['height']
@@ -149,12 +152,14 @@ class GaussianModelActor():
         xyz = torch.tensor(self.bbox).float().cuda()
         self.min_xyz, self.max_xyz =  -xyz/2., xyz/2.  
         
-        extent = max(length*1.5/cfg.data.box_scale, width*1.5/cfg.data.box_scale, height) / 2.
+        #extent = max(length*1.5/cfg.data.box_scale, width*1.5/cfg.data.box_scale, height) / 2.
+        box_scale=1.5
+        extent = max(length*1.5/box_scale, width*1.5/box_scale, height) / 2.
         self.extent = torch.tensor([extent]).float().cuda()   
 
-        num_classes = 1 if cfg.data.get('use_semantic', False) else 0
-        self.num_classes_global = cfg.data.num_classes if cfg.data.get('use_semantic', False) else 0        
-        super().__init__(model_name=model_name, num_classes=num_classes)
+        num_classes = 0 # 1 if cfg.data.get('use_semantic', False) else 0
+        self.num_classes_global = 1 # cfg.data.num_classes if cfg.data.get('use_semantic', False) else 0        
+        #super().__init__(model_name=model_name, num_classes=num_classes)
         
         self.flip_prob = 0 # cfg.model.gaussian.get('flip_prob', 0.) if not self.deformable else 0.
         self.flip_axis = 1
