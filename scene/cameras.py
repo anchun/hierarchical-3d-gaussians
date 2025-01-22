@@ -105,6 +105,7 @@ class Camera(nn.Module):
         self.camera_center = self.world_view_transform.inverse()[3, :3].to(self.data_device)
 
         if metadata is not None and 'ego_pose' in self.metadata.keys():
+            print('==== self.data_device',self.data_device)
             self.ego_pose = torch.from_numpy(self.metadata['ego_pose']).float().to(self.data_device)
             del self.metadata['ego_pose']
         else:

@@ -23,6 +23,8 @@ from utils.graphics_utils import BasicPointCloud
 from utils.general_utils import strip_symmetric, build_scaling_rotation
 from gaussian_hierarchy._C import load_hierarchy, write_hierarchy
 from scene.OurAdam import Adam
+from scene.cameras import Camera
+from scene.gaussian_model_actor import GaussianModelActor
 
 class GaussianModel:
 
@@ -45,13 +47,15 @@ class GaussianModel:
 
         # Build object model
         self.obj_list = []
-        self.model_name_id = bidict()
-        if 'dynamic_objects' in self.metadata.keys() and len(self.metadata['dynamic_objects'] > 0):
-            for object_id, obj_meta in self.obj_info.items():
+        #self.model_name_id = bidict()
+        if self.metadata is not None and 'dynamic_objects' in self.metadata.keys() and len(self.metadata['dynamic_objects']) > 0:
+            obj_info = self.metadata['dynamic_objects']
+            for object_id, obj_meta in obj_info.items():
                 model_name = f'obj_{object_id:03d}'
-                setattr(self, model_name, GaussianModelActor(model_name=model_name, obj_meta=obj_meta, num_frames=self.metadata['num_frames']))
-                self.model_name_id[model_name] = self.models_num
-                self.obj_list.append(model_name)
+                obj_model = GaussianModelActor(model_name=model_name, obj_meta=obj_meta, num_frames=self.metadata['num_frames'])
+                setattr(self, model_name, obj_model)
+                #self.model_name_id[model_name] = self.models_num
+                self.obj_list.append(obj_model)
                 # self.models_num += 1
 
 
@@ -216,7 +220,6 @@ class GaussianModel:
             scaffold_file: str,
             bounds_file: str,
             skybox_locked: bool):
-        
         self.spatial_lr_scale = spatial_lr_scale
 
         xyz = torch.tensor(np.asarray(pcd.points)).float().cuda()
@@ -324,7 +327,7 @@ class GaussianModel:
         self._rotation = nn.Parameter(rots.requires_grad_(True))
         self._opacity = nn.Parameter(opacities.requires_grad_(True))
         self._semantic = nn.Parameter(semantics.requires_grad_(True))
-        self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda")
+        self.max_radii2D = torch.zeros((self._xyz.shape[0]), device="cuda")
 
         self.exposure_mapping = {cam_info.image_name: idx for idx, cam_info in enumerate(cam_infos)}
 
@@ -333,12 +336,12 @@ class GaussianModel:
         print("Number of points at initialisation : ", self._xyz.shape[0])
 
         for obj_model in self.obj_list:
-            obj_model.create_from_pcd()
+            obj_model.create_from_pcd(0)
 
     def training_setup(self, training_args, our_adam=True):
         self.percent_dense = training_args.percent_dense
-        self.xyz_gradient_accum = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
-        self.denom = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
+        self.xyz_gradient_accum = torch.zeros((self._xyz.shape[0], 1), device="cuda")
+        self.denom = torch.zeros((self._xyz.shape[0], 1), device="cuda")
 
         l = [
             {'params': [self._xyz], 'lr': training_args.position_lr_init * self.spatial_lr_scale, "name": "xyz"},
@@ -363,7 +366,7 @@ class GaussianModel:
         self.exposure_scheduler_args = get_expon_lr_func(training_args.exposure_lr_init, training_args.exposure_lr_final, lr_delay_steps=training_args.exposure_lr_delay_steps, lr_delay_mult=training_args.exposure_lr_delay_mult, max_steps=training_args.iterations)
 
         for obj_model in self.obj_list:
-            obj_model.training_setup()
+            obj_model.training_setup(training_args)
        
     def load_ply_file(self, path, degree):
         plydata = PlyData.read(path)
@@ -475,7 +478,7 @@ class GaussianModel:
         self._scaling = nn.Parameter(scales.cuda().requires_grad_(True))
         self._rotation = nn.Parameter(rots.cuda().requires_grad_(True))
         self._semantic = nn.Parameter(semantics.cuda().requires_grad_(True))
-        self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda")
+        self.max_radii2D = torch.zeros((self._xyz.shape[0]), device="cuda")
 
         self.opacity_activation = torch.abs
         self.inverse_opacity_activation = torch.abs
@@ -501,7 +504,7 @@ class GaussianModel:
         self._opacity = nn.Parameter(alpha.cuda().requires_grad_(True))
         self._scaling = nn.Parameter(scales.cuda().requires_grad_(True))
         self._rotation = nn.Parameter(rots.cuda().requires_grad_(True))
-        self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda")
+        self.max_radii2D = torch.zeros((self._xyz.shape[0]), device="cuda")
 
     def save_hier(self):
         write_hierarchy(self.hierarchy_path + "_opt",
@@ -612,11 +615,11 @@ class GaussianModel:
         # PlyData([el]).write(path)
         plydata_list.append(el)
 
-        for obj_model in self.obj_list:
-            plydata = obj_model.make_ply()
-            model_name = obj_model.get_modelname
-            plydata = PlyElement.describe(plydata, f'vertex_{model_name}')
-            plydata_list.append(plydata)
+        #for obj_model in self.obj_list:
+        #    plydata = obj_model.make_ply()
+        #    model_name = obj_model.get_modelname
+        #    plydata = PlyElement.describe(plydata, f'vertex_{model_name}')
+        #    plydata_list.append(plydata)
 
         PlyData(plydata_list).write(path)
 
@@ -744,13 +747,13 @@ class GaussianModel:
         self._rotation = optimizable_tensors["rotation"]
         self._semantic = optimizable_tensors["semantic"]
 
-        self.xyz_gradient_accum = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
-        self.denom = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
+        self.xyz_gradient_accum = torch.zeros((self._xyz.shape[0], 1), device="cuda")
+        self.denom = torch.zeros((self._xyz.shape[0], 1), device="cuda")
         self.max_radii2D = torch.cat((self.max_radii2D, torch.zeros((new_xyz.shape[0]), device="cuda")))
-        #self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda")
+        #self.max_radii2D = torch.zeros((self._xyz.shape[0]), device="cuda")
 
     def densify_and_split(self, grads, grad_threshold, scene_extent, N=2):
-        n_init_points = self.get_xyz.shape[0]
+        n_init_points = self._xyz.shape[0]
         # Extract points that satisfy the gradient condition
         padded_grad = torch.zeros((n_init_points), device="cuda")
         padded_grad[:grads.shape[0]] = grads.squeeze()
@@ -814,7 +817,7 @@ class GaussianModel:
 
         self.prune_points(prune_mask)
 
-        self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda")
+        self.max_radii2D = torch.zeros((self._xyz.shape[0]), device="cuda")
 
         for obj_model in self.obj_list:
             obj_model.reset_opacity()
