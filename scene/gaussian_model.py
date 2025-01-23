@@ -51,6 +51,8 @@ class GaussianModel:
         if self.metadata is not None and 'dynamic_objects' in self.metadata.keys() and len(self.metadata['dynamic_objects']) > 0:
             obj_info = self.metadata['dynamic_objects']
             for object_id, obj_meta in obj_info.items():
+                if obj_meta['start_frame'] == obj_meta['end_frame']:
+                    continue
                 model_name = f'obj_{object_id:03d}'
                 obj_model = GaussianModelActor(model_name=model_name, obj_meta=obj_meta, num_frames=self.metadata['num_frames'])
                 setattr(self, model_name, obj_model)

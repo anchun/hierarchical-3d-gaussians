@@ -56,7 +56,8 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
     indices = None
 
     iteration = first_iter
-    training_generator = DataLoader(scene.getTrainCameras(), num_workers = 8, prefetch_factor = 1, persistent_workers = True, collate_fn=direct_collate)
+    # multi workers will emit this issue: Cannot re-initialize CUDA in forked subprocess. To use CUDA with multiproces
+    training_generator = DataLoader(scene.getTrainCameras(), num_workers = 0, prefetch_factor = None, persistent_workers = False, collate_fn=direct_collate)
 
     for param_group in gaussians.optimizer.param_groups:
         if param_group["name"] == "xyz":

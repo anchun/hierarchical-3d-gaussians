@@ -106,7 +106,7 @@ def render(
 
     feature_names = []
     features = []
-    if cfg.data.get('use_semantic', False):
+    if False: #cfg.data.get('use_semantic', False):
         semantics = pc.get_semantic
         feature_names.append('semantic')
         feature_dims.append(semantics.shape[-1])
@@ -115,8 +115,8 @@ def render(
     if len(features) > 0:
         features = torch.cat(features, dim=-1)
     else:
-        features = None
-    rendered_image, radii, depth_image = rasterizer(
+        features = torch.zeros(means3D.shape[0], 1).float().cuda() # TODO
+    rendered_image, radii, depth_image, rendered_feature = rasterizer(
         means3D = means3D,
         means2D = means2D,
         shs = shs,
@@ -127,6 +127,26 @@ def render(
         cov3D_precomp = cov3D_precomp,
         semantics = features,
     )
+    
+    #rendered_feature_dict = dict()
+    #if rendered_feature.shape[0] > 0:
+    #    rendered_feature_list = torch.split(rendered_feature, feature_dims, dim=0)
+    #    for i, feature_name in enumerate(feature_names):
+    #        rendered_feature_dict[feature_name] = rendered_feature_list[i]
+
+    #if 'normals' in rendered_feature_dict:
+    #    rendered_feature_dict['normals'] = torch.nn.functional.normalize(rendered_feature_dict['normals'], dim=0)
+
+    #if 'semantic' in rendered_feature_dict:
+    #    rendered_semantic = rendered_feature_dict['semantic']
+    #    semantic_mode = 'logits' # TODO : cfg.model.gaussian.get('semantic_mode', 'logits')
+    #    assert semantic_mode in ['logits', 'probabilities']
+    #    if semantic_mode == 'logits': 
+    #        pass # return raw semantic logits
+    #    else:
+    #        rendered_semantic = rendered_semantic / (torch.sum(rendered_semantic, dim=0, keepdim=True) + 1e-8) # normalize to probabilities
+    #        rendered_semantic = torch.log(rendered_semantic + 1e-8) # change for cross entropy loss
+    #    rendered_feature_dict['semantic'] = rendered_semantic
     
     if use_trained_exp:
         exposure = pc.get_exposure_from_name(viewpoint_camera.image_name)
@@ -144,11 +164,13 @@ def render(
 
     # Those Gaussians that were frustum culled or had a radius of 0 were not visible.
     # They will be excluded from value updates used in the splitting criteria.
-    return {"render": rendered_image,
+    result = {"render": rendered_image,
             "depth" : depth_image,
             "viewspace_points": screenspace_points,
             "visibility_filter" : vis_filter.nonzero().flatten().long(),
             "radii": radii[subfilter]}
+    #result.update(rendered_feature_dict)
+    return result
 
 
 def render_post(
@@ -285,7 +307,27 @@ def render_post(
 
     rasterizer = GaussianRasterizer(raster_settings=raster_settings)
 
-    rendered_image, radii, _ = rasterizer(
+    feature_names = []
+    feature_dims = []
+    features = []
+
+    if cfg.render.render_normal:
+        normals = pc.get_normals(viewpoint_camera)
+        feature_names.append('normals')
+        feature_dims.append(normals.shape[-1])
+        features.append(normals)
+
+    if cfg.data.get('use_semantic', False):
+        semantics = pc.get_semantic
+        feature_names.append('semantic')
+        feature_dims.append(semantics.shape[-1])
+        features.append(semantics)
+
+    if len(features) > 0:
+        features = torch.cat(features, dim=-1)
+    else: 
+        features = torch.zeros(means3D.shape[0], 1).float().cuda() # TODO
+    rendered_image, radii, _, rendered_feature = rasterizer(
         means3D = means3D,
         means2D = means2D,
         shs = shs,
@@ -293,8 +335,30 @@ def render_post(
         opacities = opacity,
         scales = scales,
         rotations = rotations,
-        cov3D_precomp = cov3D_precomp)
+        cov3D_precomp = cov3D_precomp,
+        semantics = features,
+        )
     
+    #rendered_feature_dict = dict()
+    #if rendered_feature.shape[0] > 0:
+    #    rendered_feature_list = torch.split(rendered_feature, feature_dims, dim=0)
+    #    for i, feature_name in enumerate(feature_names):
+    #        rendered_feature_dict[feature_name] = rendered_feature_list[i]
+
+    #if 'normals' in rendered_feature_dict:
+    #    rendered_feature_dict['normals'] = torch.nn.functional.normalize(rendered_feature_dict['normals'], dim=0)
+
+    #if 'semantic' in rendered_feature_dict:
+    #    rendered_semantic = rendered_feature_dict['semantic']
+    #    semantic_mode = 'logits' # TODO cfg.model.gaussian.get('semantic_mode', 'logits')
+    #    assert semantic_mode in ['logits', 'probabilities']
+    #    if semantic_mode == 'logits': 
+    #        pass # return raw semantic logits
+    #    else:
+    #        rendered_semantic = rendered_semantic / (torch.sum(rendered_semantic, dim=0, keepdim=True) + 1e-8) # normalize to probabilities
+    #        rendered_semantic = torch.log(rendered_semantic + 1e-8) # change for cross entropy loss
+    #    rendered_feature_dict['semantic'] = rendered_semantic
+
     if use_trained_exp and pc.pretrained_exposures:
         try:
             exposure = pc.pretrained_exposures[viewpoint_camera.image_name]
@@ -307,10 +371,12 @@ def render_post(
 
     # Those Gaussians that were frustum culled or had a radius of 0 were not visible.
     # They will be excluded from value updates used in the splitting criteria.
-    return {"render": rendered_image,
+    result = {"render": rendered_image,
             "viewspace_points": screenspace_points,
             "visibility_filter" : vis_filter,
             "radii": radii[vis_filter]}
+    #result.update(rendered_feature_dict)
+    return result
 
 def render_coarse(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, scaling_modifier = 1.0, zfar=0.0, override_color = None, indices = None, big_limit = float('inf')):
     """
@@ -399,7 +465,20 @@ def render_coarse(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.T
         scales = scales[indices].contiguous()
         rotations = rotations[indices].contiguous() 
 
-    rendered_image, radii, _ = rasterizer(
+    feature_names = []
+    features = []
+    if False:# cfg.data.get('use_semantic', False):
+        semantics = pc.get_semantic
+        feature_names.append('semantic')
+        feature_dims.append(semantics.shape[-1])
+        features.append(semantics)
+    if len(features) > 0:
+        features = torch.cat(features, dim=-1)
+    else:
+        features = torch.zeros(means3D.shape[0], 1).float().cuda() # TODO
+
+
+    rendered_image, radii, _, rendered_feature = rasterizer(
         means3D = means3D,
         means2D = means2D,
         shs = shs,
@@ -407,8 +486,30 @@ def render_coarse(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.T
         opacities = opacity,
         scales = scales,
         rotations = rotations,
-        cov3D_precomp = cov3D_precomp)
+        cov3D_precomp = cov3D_precomp,
+        semantics = features,
+        )
     
+    #rendered_feature_dict = dict()
+    #if rendered_feature.shape[0] > 0:
+    #    rendered_feature_list = torch.split(rendered_feature, feature_dims, dim=0)
+    #    for i, feature_name in enumerate(feature_names):
+    #        rendered_feature_dict[feature_name] = rendered_feature_list[i]
+
+    #if 'normals' in rendered_feature_dict:
+    #    rendered_feature_dict['normals'] = torch.nn.functional.normalize(rendered_feature_dict['normals'], dim=0)
+
+    #if 'semantic' in rendered_feature_dict:
+    #    rendered_semantic = rendered_feature_dict['semantic']
+    #    semantic_mode = 'logits' # TODO cfg.model.gaussian.get('semantic_mode', 'logits')
+    #    assert semantic_mode in ['logits', 'probabilities']
+    #    if semantic_mode == 'logits': 
+    #        pass # return raw semantic logits
+    #    else:
+    #        rendered_semantic = rendered_semantic / (torch.sum(rendered_semantic, dim=0, keepdim=True) + 1e-8) # normalize to probabilities
+    #        rendered_semantic = torch.log(rendered_semantic + 1e-8) # change for cross entropy loss
+                                                                                                   
+    #    rendered_feature_dict['semantic'] = rendered_semantic
 
     
     subfilter = radii > 0
@@ -422,7 +523,10 @@ def render_coarse(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.T
 
     # Those Gaussians that were frustum culled or had a radius of 0 were not visible.
     # They will be excluded from value updates used in the splitting criteria.
-    return {"render": rendered_image,
+    result = {"render": rendered_image,
             "viewspace_points": screenspace_points,
             "visibility_filter" : vis_filter,
-            "radii": radii[subfilter]}
+            "radii": radii[subfilter],
+            }
+    #result.update(rendered_feature_dict)
+    return result

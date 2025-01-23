@@ -344,13 +344,12 @@ class GaussianModelActor():
 
         # 2. transform object pose to world coordinate
         ego_rotation_in_world = matrix_to_quaternion(ego_pose_in_world[:3, :3].unsqueeze(0)).squeeze(0)
-        print('==== self.viewpoint_camera.ego_pose.device', self.viewpoint_camera.ego_pose.device)
         obj_rotation_in_world = quaternion_raw_multiply(ego_rotation_in_world.unsqueeze(0), obj_rotation_in_ego.unsqueeze(0)).squeeze(0)
         obj_transform_in_world = ego_pose_in_world[:3, :3] @ obj_transform_in_ego + ego_pose_in_world[:3, 3]
 
         # 3. transform local points to world coordinate
         xyz_in_object = self._xyz.clone() # from street_gaussian_model get_xyz, why ?
-        obj_rotation_in_world = quaternion_to_matrix(obj_rotation_in_world)
+        obj_rotation_in_world = quaternion_to_matrix(obj_rotation_in_world.unsqueeze(0))
         xyz_in_world = torch.einsum('bij, bj -> bi', obj_rotation_in_world, xyz_in_object) + obj_transform_in_world
         return xyz_in_world
 
