@@ -120,7 +120,7 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
                     # Progress bar
                     ema_loss_for_log = 0.4 * loss.item() + 0.6 * ema_loss_for_log
                     if iteration % 10 == 0:
-                        progress_bar.set_postfix({"Loss": f"{ema_loss_for_log:.{7}f}", "Size": f"{gaussians._xyz.size(0)}", "Peak memory": f"{torch.cuda.max_memory_allocated(device='cuda')}"})
+                        progress_bar.set_postfix({"Loss": f"{ema_loss_for_log:.{7}f}", "Size": f"{gaussians.get_xyz.size(0)}", "Peak memory": f"{torch.cuda.max_memory_allocated(device='cuda')}"})
                         progress_bar.update(10)
 
                     # Log and save
@@ -146,10 +146,10 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
                         torch.save((gaussians.capture(), iteration), scene.model_path + "/chkpnt" + str(iteration) + ".pth")
 
                     with torch.no_grad():
-                        vals, _ = gaussians.get_scaling.max(dim=1)
+                        vals, _ = gaussians.get_bg_scaling.max(dim=1)
                         violators = vals > scene.cameras_extent * 0.1
                         violators[:gaussians.skybox_points] = False
-                        gaussians._scaling[violators] = gaussians.scaling_inverse_activation(gaussians.get_scaling[violators] * 0.8)
+                        gaussians._scaling[violators] = gaussians.scaling_inverse_activation(gaussians.get_bg_scaling[violators] * 0.8)
 
 
                     iteration += 1

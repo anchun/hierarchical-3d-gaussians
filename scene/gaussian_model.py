@@ -137,6 +137,10 @@ class GaussianModel:
             scalings.append(scaling)
         scalings = torch.cat(scalings, dim=0)
         return scalings
+
+    @property
+    def get_bg_scaling(self):
+        return self.scaling_activation(self._scaling)
     
     @property
     def get_rotation(self):
@@ -222,6 +226,9 @@ class GaussianModel:
             scaffold_file: str,
             bounds_file: str,
             skybox_locked: bool):
+        for obj_model in self.obj_list:
+            obj_model.create_from_pcd(0)
+
         self.spatial_lr_scale = spatial_lr_scale
 
         xyz = torch.tensor(np.asarray(pcd.points)).float().cuda()
@@ -329,16 +336,14 @@ class GaussianModel:
         self._rotation = nn.Parameter(rots.requires_grad_(True))
         self._opacity = nn.Parameter(opacities.requires_grad_(True))
         self._semantic = nn.Parameter(semantics.requires_grad_(True))
-        self.max_radii2D = torch.zeros((self._xyz.shape[0]), device="cuda")
+        #self.max_radii2D = torch.zeros((self._xyz.shape[0]), device="cuda")
+        self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda")
 
         self.exposure_mapping = {cam_info.image_name: idx for idx, cam_info in enumerate(cam_infos)}
 
         exposure = torch.eye(3, 4, device="cuda")[None].repeat(len(cam_infos), 1, 1)
         self._exposure = nn.Parameter(exposure.requires_grad_(True))
         print("Number of points at initialisation : ", self._xyz.shape[0])
-
-        for obj_model in self.obj_list:
-            obj_model.create_from_pcd(0)
 
     def training_setup(self, training_args, our_adam=True):
         self.percent_dense = training_args.percent_dense
@@ -480,7 +485,8 @@ class GaussianModel:
         self._scaling = nn.Parameter(scales.cuda().requires_grad_(True))
         self._rotation = nn.Parameter(rots.cuda().requires_grad_(True))
         self._semantic = nn.Parameter(semantics.cuda().requires_grad_(True))
-        self.max_radii2D = torch.zeros((self._xyz.shape[0]), device="cuda")
+        #self.max_radii2D = torch.zeros((self._xyz.shape[0]), device="cuda")
+        self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda")
 
         self.opacity_activation = torch.abs
         self.inverse_opacity_activation = torch.abs
@@ -506,7 +512,8 @@ class GaussianModel:
         self._opacity = nn.Parameter(alpha.cuda().requires_grad_(True))
         self._scaling = nn.Parameter(scales.cuda().requires_grad_(True))
         self._rotation = nn.Parameter(rots.cuda().requires_grad_(True))
-        self.max_radii2D = torch.zeros((self._xyz.shape[0]), device="cuda")
+        #self.max_radii2D = torch.zeros((self._xyz.shape[0]), device="cuda")
+        self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda")
 
     def save_hier(self):
         write_hierarchy(self.hierarchy_path + "_opt",
@@ -819,7 +826,8 @@ class GaussianModel:
 
         self.prune_points(prune_mask)
 
-        self.max_radii2D = torch.zeros((self._xyz.shape[0]), device="cuda")
+        #self.max_radii2D = torch.zeros((self._xyz.shape[0]), device="cuda")
+        self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda")
 
         for obj_model in self.obj_list:
             obj_model.reset_opacity()
