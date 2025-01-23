@@ -115,7 +115,7 @@ def render(
     if len(features) > 0:
         features = torch.cat(features, dim=-1)
     else:
-        features = torch.zeros(means3D.shape[0], 1).float().cuda() # TODO
+        features = torch.zeros(means3D.shape[0], 0).float().cuda() # TODO
     rendered_image, radii, depth_image, rendered_feature = rasterizer(
         means3D = means3D,
         means2D = means2D,
@@ -326,7 +326,7 @@ def render_post(
     if len(features) > 0:
         features = torch.cat(features, dim=-1)
     else: 
-        features = torch.zeros(means3D.shape[0], 1).float().cuda() # TODO
+        features = torch.zeros(means3D.shape[0], 0).float().cuda() # TODO
     rendered_image, radii, _, rendered_feature = rasterizer(
         means3D = means3D,
         means2D = means2D,
@@ -475,7 +475,7 @@ def render_coarse(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.T
     if len(features) > 0:
         features = torch.cat(features, dim=-1)
     else:
-        features = torch.zeros(means3D.shape[0], 1).float().cuda() # TODO
+        features = torch.zeros(means3D.shape[0], 0).float().cuda() # TODO
 
 
     rendered_image, radii, _, rendered_feature = rasterizer(
