@@ -60,8 +60,10 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
     first_iter += 1
 
     indices = None  
-    
-    training_generator = DataLoader(scene.getTrainCameras(), num_workers = 8, prefetch_factor = 1, persistent_workers = True, collate_fn=direct_collate)
+   
+    # TODO: multi workers will emit this issue: Cannot re-initialize CUDA in forked subprocess. To use CUDA with multiproces
+    #training_generator = DataLoader(scene.getTrainCameras(), num_workers = 8, prefetch_factor = 1, persistent_workers = True, collate_fn=direct_collate)
+    training_generator = DataLoader(scene.getTrainCameras(), num_workers = 0, prefetch_factor = None, persistent_workers = False, collate_fn=direct_collate)
 
     iteration = first_iter
 
@@ -169,7 +171,8 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
                     # Densification
                     if iteration < opt.densify_until_iter:
                         # Keep track of max radii in image-space for pruning
-                        gaussians.max_radii2D[visibility_filter] = torch.max(gaussians.max_radii2D[visibility_filter], radii)
+                        #gaussians.max_radii2D[visibility_filter] = torch.max(gaussians.max_radii2D[visibility_filter], radii)
+                        gaussians.set_max_radii2D(radii, visibility_filter)
                         gaussians.add_densification_stats(viewspace_point_tensor, visibility_filter)
 
                         if iteration > opt.densify_from_iter and iteration % opt.densification_interval == 0:

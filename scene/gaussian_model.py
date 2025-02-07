@@ -55,6 +55,7 @@ class GaussianModel:
                     continue
                 model_name = f'obj_{object_id:03d}'
                 obj_model = GaussianModelActor(model_name=model_name, obj_meta=obj_meta, num_frames=self.metadata['num_frames'])
+                obj_model.name = obj_model
                 setattr(self, model_name, obj_model)
                 #self.model_name_id[model_name] = self.models_num
                 self.obj_list.append(obj_model)
@@ -124,7 +125,18 @@ class GaussianModel:
         self.optimizer.load_state_dict(opt_dict)
 
     def parse_camera(self, camera: Camera):
+        # set index range
+        self.graph_gaussian_range = dict()
+        idx = 0
+        num_gaussians_bkgd = self._xyz.shape[0]
+        self.graph_gaussian_range['background'] = [idx, idx+num_gaussians_bkgd-1]
+        idx += num_gaussians_bkgd
+
         for obj_model in self.obj_list:
+            obj_name = obj_model.name
+            num_gaussians_obj = obj_model.get_xyz.shape[0]
+            self.graph_gaussian_range[obj_name] = [idx, idx+num_gaussians_obj-1]
+            idx += num_gaussians_obj
             obj_model.parse_camera(camera)
 
     @property
@@ -411,8 +423,8 @@ class GaussianModel:
         semantic_names = [p.name for p in plydata.elements[0].properties if p.name.startswith("semantic_")]
         semantic_names = sorted(semantic_names, key = lambda x: int(x.split('_')[-1]))
         semantic = np.zeros((xyz.shape[0], len(semantic_names)))
-        for idx, attr_name in enumerate(semantic_names):
-            semantic[:, idx] = np.asarray(plydata[attr_name])
+        #for idx, attr_name in enumerate(semantic_names):
+        #    semantic[:, idx] = np.asarray(plydata[attr_name])
 
         return xyz, features_dc, features_extra, opacities, scales, rots, semantic
 
@@ -543,8 +555,8 @@ class GaussianModel:
             obj_model.update_learning_rate()
 
     def update_optimizer(self, relevant):
-        gaussians.optimizer.step(relevant)
-        gaussians.optimizer.zero_grad(set_to_none = True)
+        self.optimizer.step(relevant)
+        self.optimizer.zero_grad(set_to_none = True)
         for obj_model in self.obj_list:
             obj_model.update_optimizer()
 
@@ -836,6 +848,38 @@ class GaussianModel:
         for obj_model in self.obj_list:
             obj_model.densify_and_prune(max_grad, min_opacity, prune_big_points)
 
+    def set_max_radii2D(self, radii, update_filter):
+        start, end = self.graph_gaussian_range['background']
+        visibility_model = update_filter[(update_filter >= start) & (update_filter <= end)] - start
+        if len(visibility_model) > 0:
+            max_radii2D_model = radii[start:end+1]
+            self.max_radii2D[visibility_model] = torch.max(self.max_radii2D[visibility_model], max_radii2D_model[visibility_model])
+        for obj_model in self.obj_list:
+            start, end = self.graph_gaussian_range[obj_model.name]
+            visibility_model = update_filter[(update_filter >= start) & (update_filter <= end)] - start
+            if len(visibility_model) == 0:
+                continue
+            max_radii2D_model = radii[start:end+1]
+            obj_model.max_radii2D[visibility_model] = torch.max(obj_model.max_radii2D[visibility_model], max_radii2D_model[visibility_model])
+
     def add_densification_stats(self, viewspace_point_tensor, update_filter):
-        self.xyz_gradient_accum[update_filter] = torch.max(torch.norm(viewspace_point_tensor.grad[update_filter,:2], dim=-1, keepdim=True), self.xyz_gradient_accum[update_filter])
-        self.denom[update_filter] += 1
+        #self.xyz_gradient_accum[update_filter] = torch.max(torch.norm(viewspace_point_tensor.grad[update_filter,:2], dim=-1, keepdim=True), self.xyz_gradient_accum[update_filter])
+        #self.denom[update_filter] += 1
+
+        viewspace_point_tensor_grad = viewspace_point_tensor.grad
+        start, end = self.graph_gaussian_range['background']
+        visibility_model = update_filter[(update_filter >= start) & (update_filter <= end)] - start
+        if len(visibility_model) > 0:
+            viewspace_point_tensor_grad_model = viewspace_point_tensor_grad[start:end+1]
+            self.xyz_gradient_accum[visibility_model] = torch.max(torch.norm(viewspace_point_tensor_grad_model[visibility_model,:2], dim=-1, keepdim=True), self.xyz_gradient_accum[visibility_model])
+            self.denom[visibility_model] += 1
+
+        for obj_model in self.obj_list:
+            start, end = self.graph_gaussian_range[obj_model.name]
+            visibility_model = update_filter[(update_filter >= start) & (update_filter <= end)] - start
+            if len(visibility_model) == 0:
+                continue
+            viewspace_point_tensor_grad_model = viewspace_point_tensor_grad[start:end+1]
+            obj_model.xyz_gradient_accum[visibility_model] = torch.max(torch.norm(viewspace_point_tensor_grad_model[visibility_model,:2], dim=-1, keepdim=True), obj_model.xyz_gradient_accum[visibility_model])
+            obj_model.denom[visibility_model] += 1
+

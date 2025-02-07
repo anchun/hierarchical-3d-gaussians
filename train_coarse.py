@@ -114,7 +114,8 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
 
                 iter_end.record()
 
-                gaussians.max_radii2D[visibility_filter] = torch.max(gaussians.max_radii2D[visibility_filter], radii)
+                #gaussians.max_radii2D[visibility_filter] = torch.max(gaussians.max_radii2D[visibility_filter], radii)
+                gaussians.set_max_radii2D(radii, visibility_filter)
 
                 with torch.no_grad():
                     # Progress bar
@@ -130,7 +131,7 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
 
                     if iteration == opt.iterations:
                         progress_bar.close()
-                        training_generator._get_iterator()._shutdown_workers()
+                       # training_generator._get_iterator()._shutdown_workers()
                         return
 
                     # Optimizer step

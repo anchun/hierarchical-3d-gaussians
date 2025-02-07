@@ -258,7 +258,7 @@ class GaussianModelActor():
         self.delta_transforms_in_ego = torch.nn.Parameter(torch.zeros_like(self.transforms_in_ego).float().cuda()).requires_grad_(True)
         self.delta_rotations_in_ego = torch.nn.Parameter(torch.stack([torch.tensor([1, 0, 0, 0])] * num_frames).float().cuda()).requires_grad_(True)
         self.viewpoint_camera = None # 训练时渲染用，用于计算动态信息
-        self.max_sh_degree = 1 # TODO 什么用途？
+        self.max_sh_degree = 3 # TODO 什么用途？
 
     def setup_functions(self):
         def build_covariance_from_scaling_rotation(scaling, scaling_modifier, rotation):
@@ -311,7 +311,7 @@ class GaussianModelActor():
 
     @property
     def get_rotation(self):
-        if self.viewpoint_camera is None:
+        if self.viewpoint_camera is None or self.viewpoint_camera.ego_pose is None:
             return self.rotation_activation(self._rotation)
 
         frame_id = self.viewpoint_camera.metadata['frame_id']
@@ -332,13 +332,13 @@ class GaussianModelActor():
 
     @property
     def get_xyz(self):
-        if self.viewpoint_camera is None:
+        if self.viewpoint_camera is None or self.viewpoint_camera.ego_pose is None:
             return self._xyz
 
         frame_id = self.viewpoint_camera.metadata['frame_id']
         ego_pose_in_world = self.viewpoint_camera.ego_pose
 
-        # 1. fix object pose with learnable delta (in ego coordinate)A
+        # 1. fix object pose with learnable delta (in ego coordinate)
         obj_transform_in_ego = self.transforms_in_ego[frame_id] + self.delta_transforms_in_ego[frame_id]
         obj_rotation_in_ego = quaternion_raw_multiply(self.rotations_in_ego[frame_id].unsqueeze(0), self.delta_rotations_in_ego[frame_id].unsqueeze(0)).squeeze(0)
 
