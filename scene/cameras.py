@@ -106,13 +106,13 @@ class Camera(nn.Module):
 
         if metadata is not None and 'ego_pose' in self.metadata.keys():
             self.ego_pose = torch.from_numpy(self.metadata['ego_pose']).float().to(self.data_device)
-            del self.metadata['ego_pose']
+            #del self.metadata['ego_pose']
         else:
             self.ego_pose = None
 
         if metadata is not None and 'extrinsic' in self.metadata.keys():
             self.extrinsic = torch.from_numpy(self.metadata['extrinsic']).float().to(self.data_device)
-            del self.metadata['extrinsic']
+            #del self.metadata['extrinsic']
         else:
             self.extrinsic = None
 

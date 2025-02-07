@@ -116,6 +116,7 @@ def render(
         features = torch.cat(features, dim=-1)
     else:
         features = torch.zeros(means3D.shape[0], 0).float().cuda() # TODO
+
     rendered_image, radii, depth_image, rendered_feature = rasterizer(
         means3D = means3D,
         means2D = means2D,
@@ -155,7 +156,7 @@ def render(
 
     subfilter = radii > 0
     if indices is not None:
-        vis_filter = torch.zeros(pc._xyz.size(0), dtype=bool, device="cuda")
+        vis_filter = torch.zeros(pc.get_xyz.size(0), dtype=bool, device="cuda")
         w = vis_filter[indices]
         w[subfilter] = True
         vis_filter[indices] = w
@@ -168,7 +169,8 @@ def render(
             "depth" : depth_image,
             "viewspace_points": screenspace_points,
             "visibility_filter" : vis_filter.nonzero().flatten().long(),
-            "radii": radii[subfilter]}
+            #"radii": radii[subfilter]}
+            "radii": radii}
     #result.update(rendered_feature_dict)
     return result
 
@@ -514,7 +516,7 @@ def render_coarse(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.T
     
     subfilter = radii > 0
     if indices is not None:
-        vis_filter = torch.zeros(pc._xyz.size(0), dtype=bool, device="cuda")
+        vis_filter = torch.zeros(pc.get_xyz.size(0), dtype=bool, device="cuda")
         w = vis_filter[indices]
         w[subfilter] = True
         vis_filter[indices] = w
