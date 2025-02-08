@@ -277,18 +277,30 @@ def get_content_from_list(object_list, name):
 # 以 object_id组织动态对象，每个动态对象包括：
 #    基础元数据：如长宽高、类别等
 #    起始帧号：在任一一个视角出现的最开始和最后一帧
-#    位姿：key为帧号，value为transformer和rotation(3*3矩阵)
+#    位姿：key为帧号，value为transformer、rotation(3*3矩阵)、speed
 def convert_and_filter(dynamic_objects):
-    output = {}
+    all_objects = {}
     for frame_id, frame_objects in enumerate(dynamic_objects):
         for obj in frame_objects:
             track_id = obj['track_id']
-            if track_id not in output:
-                output[track_id] = {'object_id': track_id, 'start_frame':1e10, 'end_frame':0, 'deformable': obj['deformable'], 'class': obj['class'], 'class_label': obj['class_label'], 'width': obj['width'], 'height': obj['height'], 'length': obj['length'], 'all_transforms':{}, 'all_rotation_matrixs':{}}
-            output[track_id]['start_frame'] = min(output[track_id]['start_frame'], frame_id)
-            output[track_id]['end_frame'] = max(output[track_id]['end_frame'], frame_id)
-            output[track_id]['all_transforms'][str(frame_id)] = obj['transform']
-            output[track_id]['all_rotation_matrixs'][str(frame_id)] = obj['rotation_matrix']
+            if track_id not in all_objects:
+                all_objects[track_id] = {'object_id': track_id, 'start_frame':1e10, 'end_frame':0, 'deformable': obj['deformable'], 'class': obj['class'], 'class_label': obj['class_label'], 'width': obj['width'], 'height': obj['height'], 'length': obj['length'], 'all_transforms':{}, 'all_rotation_matrixs':{}, 'all_speeds':{}}
+            all_objects[track_id]['start_frame'] = min(all_objects[track_id]['start_frame'], frame_id)
+            all_objects[track_id]['end_frame'] = max(all_objects[track_id]['end_frame'], frame_id)
+            all_objects[track_id]['all_transforms'][str(frame_id)] = obj['transform']
+            all_objects[track_id]['all_rotation_matrixs'][str(frame_id)] = obj['rotation_matrix']
+            all_objects[track_id]['all_speeds'][str(frame_id)] = obj['speed']
+
+    output = {}
+    for track_id, obj in all_objects.items():
+        speeds = obj['all_speeds']
+        sum_speed = 0
+        for frame_id, speed in speeds.items():
+            sum_speed += speed
+        avg_speed = sum_speed / len(speeds)
+        obj['avg_speed'] = avg_speed
+        if avg_speed > 0.1:
+            output[track_id] = obj
     return output
 
 
@@ -356,7 +368,7 @@ def extract_waymo_scene(input_path, output_dir):
         os.makedirs(os.path.join(image_dir, camera_name.lower()), exist_ok=True)
         os.makedirs(os.path.join(depth_dir, camera_name.lower()), exist_ok=True)
 
-    for frame_id, raw_frame in tqdm(enumerate(dataset), total=199):
+    for frame_id, raw_frame in tqdm(enumerate(dataset), total=197):
         # if frame_id >= 1:
         #     break
         # frame_image_names = {}
