@@ -25,6 +25,7 @@ from gaussian_hierarchy._C import load_hierarchy, write_hierarchy
 from scene.OurAdam import Adam
 from scene.cameras import Camera
 from scene.gaussian_model_actor import GaussianModelActor
+import time
 
 class GaussianModel:
 
@@ -151,6 +152,10 @@ class GaussianModel:
         return scalings
 
     @property
+    def get_self_scaling(self):
+        return self.scaling_activation(self._scaling)
+
+    @property
     def get_bg_scaling(self):
         return self.scaling_activation(self._scaling)
     
@@ -213,6 +218,10 @@ class GaussianModel:
             opacities.append(opacity)
         opacities = torch.cat(opacities, dim=0)
         return opacities
+
+    @property
+    def get_self_opacity(self):
+        return self.opacity_activation(self._opacity)
     
     @property
     def get_exposure(self):
@@ -348,8 +357,8 @@ class GaussianModel:
         self._rotation = nn.Parameter(rots.requires_grad_(True))
         self._opacity = nn.Parameter(opacities.requires_grad_(True))
         self._semantic = nn.Parameter(semantics.requires_grad_(True))
-        #self.max_radii2D = torch.zeros((self._xyz.shape[0]), device="cuda")
-        self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda")
+        self.max_radii2D = torch.zeros((self._xyz.shape[0]), device="cuda")
+        #self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda")
 
         self.exposure_mapping = {cam_info.image_name: idx for idx, cam_info in enumerate(cam_infos)}
 
@@ -497,8 +506,8 @@ class GaussianModel:
         self._scaling = nn.Parameter(scales.cuda().requires_grad_(True))
         self._rotation = nn.Parameter(rots.cuda().requires_grad_(True))
         self._semantic = nn.Parameter(semantics.cuda().requires_grad_(True))
-        #self.max_radii2D = torch.zeros((self._xyz.shape[0]), device="cuda")
-        self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda")
+        self.max_radii2D = torch.zeros((self._xyz.shape[0]), device="cuda")
+        #self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda")
 
         self.opacity_activation = torch.abs
         self.inverse_opacity_activation = torch.abs
@@ -524,8 +533,8 @@ class GaussianModel:
         self._opacity = nn.Parameter(alpha.cuda().requires_grad_(True))
         self._scaling = nn.Parameter(scales.cuda().requires_grad_(True))
         self._rotation = nn.Parameter(rots.cuda().requires_grad_(True))
-        #self.max_radii2D = torch.zeros((self._xyz.shape[0]), device="cuda")
-        self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda")
+        self.max_radii2D = torch.zeros((self._xyz.shape[0]), device="cuda")
+        #self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda")
 
     def save_hier(self):
         write_hierarchy(self.hierarchy_path + "_opt",
@@ -645,7 +654,7 @@ class GaussianModel:
         PlyData(plydata_list).write(path)
 
     def reset_opacity(self):
-        opacities_new = torch.cat((self._opacity[:self.skybox_points], inverse_sigmoid(torch.min(self.get_opacity[self.skybox_points:], torch.ones_like(self.get_opacity[self.skybox_points:])*0.01))), 0)
+        opacities_new = torch.cat((self._opacity[:self.skybox_points], inverse_sigmoid(torch.min(self.get_self_opacity[self.skybox_points:], torch.ones_like(self.get_self_opacity[self.skybox_points:])*0.01))), 0)
         #opacities_new = inverse_sigmoid(torch.min(self.get_opacity, torch.ones_like(self.get_opacity)*0.01))
         optimizable_tensors = self.replace_tensor_to_optimizer(opacities_new, "opacity")
         self._opacity = optimizable_tensors["opacity"]
@@ -778,21 +787,21 @@ class GaussianModel:
         # Extract points that satisfy the gradient condition
         padded_grad = torch.zeros((n_init_points), device="cuda")
         padded_grad[:grads.shape[0]] = grads.squeeze()
-        selected_pts_mask = torch.where(padded_grad * self.max_radii2D * torch.pow(self.get_opacity.flatten(), 1/5.0) >= grad_threshold, True, False)
-        selected_pts_mask = torch.logical_and(selected_pts_mask, self.get_opacity.flatten() > 0.15)
+        selected_pts_mask = torch.where(padded_grad * self.max_radii2D * torch.pow(self.get_self_opacity.flatten(), 1/5.0) >= grad_threshold, True, False)
+        selected_pts_mask = torch.logical_and(selected_pts_mask, self.get_self_opacity.flatten() > 0.15)
 
         selected_pts_mask = torch.logical_and(selected_pts_mask,
-                                              torch.max(self.get_scaling, dim=1).values > self.percent_dense*scene_extent)
+                                              torch.max(self.get_self_scaling, dim=1).values > self.percent_dense*scene_extent)
         # No densification of the scaffold
         if self.scaffold_points is not None:
             selected_pts_mask[:self.scaffold_points] = False
 
-        stds = self.get_scaling[selected_pts_mask].repeat(N,1)
+        stds = self.get_self_scaling[selected_pts_mask].repeat(N,1)
         means =torch.zeros((stds.size(0), 3),device="cuda")
         samples = torch.normal(mean=means, std=stds)
         rots = build_rotation(self._rotation[selected_pts_mask]).repeat(N,1,1)
-        new_xyz = torch.bmm(rots, samples.unsqueeze(-1)).squeeze(-1) + self.get_xyz[selected_pts_mask].repeat(N, 1)
-        new_scaling = self.scaling_inverse_activation(self.get_scaling[selected_pts_mask].repeat(N,1) / (0.8*N))
+        new_xyz = torch.bmm(rots, samples.unsqueeze(-1)).squeeze(-1) + self._xyz[selected_pts_mask].repeat(N, 1)
+        new_scaling = self.scaling_inverse_activation(self.get_self_scaling[selected_pts_mask].repeat(N,1) / (0.8*N))
         new_rotation = self._rotation[selected_pts_mask].repeat(N,1)
         new_features_dc = self._features_dc[selected_pts_mask].repeat(N,1,1)
         new_features_rest = self._features_rest[selected_pts_mask].repeat(N,1,1)
@@ -806,11 +815,11 @@ class GaussianModel:
 
     def densify_and_clone(self, grads, grad_threshold, scene_extent):
         # Extract points that satisfy the gradient condition
-        selected_pts_mask = torch.where(torch.norm(grads, dim=-1) * self.max_radii2D * torch.pow(self.get_opacity.flatten(), 1/5.0) >= grad_threshold, True, False)
-        selected_pts_mask = torch.logical_and(selected_pts_mask, self.get_opacity.flatten() > 0.15)
+        selected_pts_mask = torch.where(torch.norm(grads, dim=-1) * self.max_radii2D * torch.pow(self.get_self_opacity.flatten(), 1/5.0) >= grad_threshold, True, False)
+        selected_pts_mask = torch.logical_and(selected_pts_mask, self.get_self_opacity.flatten() > 0.15)
 
         selected_pts_mask = torch.logical_and(selected_pts_mask,
-                                              torch.max(self.get_scaling, dim=1).values <= self.percent_dense*scene_extent)
+                                              torch.max(self.get_self_scaling, dim=1).values <= self.percent_dense*scene_extent)
         # No densification of the scaffold
         if self.scaffold_points is not None:
             selected_pts_mask[:self.scaffold_points] = False
@@ -832,14 +841,14 @@ class GaussianModel:
         self.densify_and_clone(grads, max_grad, extent)
         self.densify_and_split(grads, max_grad, extent)
 
-        prune_mask = (self.get_opacity < min_opacity).squeeze()
+        prune_mask = (self.get_self_opacity < min_opacity).squeeze()
         if self.scaffold_points is not None:
             prune_mask[:self.scaffold_points] = False
 
         self.prune_points(prune_mask)
 
-        #self.max_radii2D = torch.zeros((self._xyz.shape[0]), device="cuda")
-        self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda")
+        self.max_radii2D = torch.zeros((self._xyz.shape[0]), device="cuda")
+        #self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda")
 
         for obj_model in self.obj_list:
             obj_model.reset_opacity()

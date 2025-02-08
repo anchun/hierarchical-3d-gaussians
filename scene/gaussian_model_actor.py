@@ -12,6 +12,7 @@ from plyfile import PlyData, PlyElement
 from simple_knn._C import distCUDA2
 from preprocess.read_write_model import rotmat2qvec
 from scene.cameras import Camera
+import time
 
 
 
@@ -260,6 +261,9 @@ class GaussianModelActor():
         self.viewpoint_camera = None # 训练时渲染用，用于计算动态信息
         self.max_sh_degree = 3 # TODO 什么用途？
 
+        self.view_camera_to_xyzs = {} # 用于get_xyz缓存
+        self.view_camera_to_rotations = {} # 同上
+
     def setup_functions(self):
         def build_covariance_from_scaling_rotation(scaling, scaling_modifier, rotation):
             L = build_scaling_rotation(scaling_modifier * scaling, rotation)
@@ -466,7 +470,7 @@ class GaussianModelActor():
         features_rest = torch.zeros(fused_color.shape[0], 3, (self.max_sh_degree + 1) ** 2 - 1).float().cuda()
         features_dc[:, :3, 0] = fused_color
 
-        print(f"Number of points at initialisation for {self.model_name}: ", fused_point_cloud.shape[0])
+        #print(f"Number of points at initialisation for {self.model_name}: ", fused_point_cloud.shape[0])
         dist2 = torch.clamp_min(distCUDA2(torch.from_numpy(np.asarray(pointcloud_xyz)).float().cuda()), 0.0000001)
         scales = torch.log(torch.sqrt(dist2))[..., None].repeat(1, 3)
         rots = torch.zeros((fused_point_cloud.shape[0], 4)).cuda()
@@ -629,7 +633,7 @@ class GaussianModelActor():
             # {'params': [self._semantic], 'lr': training_args.semantic_lr, "name": "semantic"},
         ]
         
-        self.percent_dense = training_args.percent_dense
+        self.percent_dense = 0.01 # training_args.percent_dense
         self.percent_big_ws = 0.1 # training_args.percent_big_ws
         self.optimizer = torch.optim.Adam(l, lr=0.0, eps=1e-15)
         self.xyz_scheduler_args = get_expon_lr_func(
@@ -722,26 +726,28 @@ class GaussianModelActor():
         return l
 
 
-    # def reset_optimizer(self, tensors_dict):
-    #     optimizable_tensors = {}
-    #
-    #     name_list = tensors_dict.keys()
-    #     for group in self.optimizer.param_groups:
-    #         if group['name'] in name_list:
-    #             reset_tensor = tensors_dict[group['name']]
-    #
-    #             stored_state = self.optimizer.state.get(group['params'][0], None)
-    #             stored_state["exp_avg"] = torch.zeros_like(reset_tensor)
-    #             stored_state["exp_avg_sq"] = torch.zeros_like(reset_tensor)
-    #
-    #             del self.optimizer.state[group['params'][0]]
-    #             group["params"][0] = nn.Parameter(reset_tensor.requires_grad_(True))
-    #             self.optimizer.state[group['params'][0]] = stored_state
-    #
-    #             optimizable_tensors[group["name"]] = group["params"][0]
-    #     return optimizable_tensors
+    def reset_optimizer(self, tensors_dict):
+        optimizable_tensors = {}
+    
+        name_list = tensors_dict.keys()
+        for group in self.optimizer.param_groups:
+            if group['name'] in name_list:
+                reset_tensor = tensors_dict[group['name']]
+
+                stored_state = self.optimizer.state.get(group['params'][0], None)
+                stored_state["exp_avg"] = torch.zeros_like(reset_tensor)
+                stored_state["exp_avg_sq"] = torch.zeros_like(reset_tensor)
+    
+                del self.optimizer.state[group['params'][0]]
+                group["params"][0] = nn.Parameter(reset_tensor.requires_grad_(True))
+                self.optimizer.state[group['params'][0]] = stored_state
+    
+                optimizable_tensors[group["name"]] = group["params"][0]
+        return optimizable_tensors
 
     def densify_and_prune(self, max_grad, min_opacity, prune_big_points):
+        self.view_camera_to_xyzs = {}
+        self.view_camera_to_rotations = {}
         if not (self.random_initialization or self.deformable):
             max_grad = cfg.optim.get('densify_grad_threshold_obj', max_grad)
             if cfg.optim.get('densify_grad_abs_obj', False):
@@ -808,7 +814,7 @@ class GaussianModelActor():
         self._opacity = optimizable_tensors["opacity"]
         self._scaling = optimizable_tensors["scaling"]
         self._rotation = optimizable_tensors["rotation"]
-        self._semantic = optimizable_tensors["semantic"]
+        #self._semantic = optimizable_tensors["semantic"]
 
         cat_points_num = self.get_xyz.shape[0] - self.xyz_gradient_accum.shape[0]
         self.xyz_gradient_accum = torch.cat([self.xyz_gradient_accum, torch.zeros(cat_points_num, 2).cuda()], dim=0)
@@ -834,7 +840,7 @@ class GaussianModelActor():
                                                         dim=1).values > self.percent_dense * padded_extent)
 
         self.scalar_dict['points_split'] = selected_pts_mask.sum().item()
-        print(f'Number of points to split: {selected_pts_mask.sum()}')
+        #print(f'Number of points to split: {selected_pts_mask.sum()}')
 
         stds = self.get_scaling[selected_pts_mask].repeat(N, 1)
         means = torch.zeros((stds.size(0), 3), device="cuda")
@@ -846,7 +852,7 @@ class GaussianModelActor():
         new_features_dc = self._features_dc[selected_pts_mask].repeat(N, 1, 1)
         new_features_rest = self._features_rest[selected_pts_mask].repeat(N, 1, 1)
         new_opacity = self._opacity[selected_pts_mask].repeat(N, 1)
-        new_semantic = self._semantic[selected_pts_mask].repeat(N, 1)
+        #new_semantic = self._semantic[selected_pts_mask].repeat(N, 1)
 
         self.densification_postfix({
             "xyz": new_xyz,
@@ -855,7 +861,7 @@ class GaussianModelActor():
             "opacity": new_opacity,
             "scaling": new_scaling,
             "rotation": new_rotation,
-            "semantic": new_semantic,
+            #"semantic": new_semantic,
         })
 
         prune_filter = torch.cat(
@@ -871,7 +877,7 @@ class GaussianModelActor():
                                                         dim=1).values <= self.percent_dense * scene_extent)
 
         self.scalar_dict['points_clone'] = selected_pts_mask.sum().item()
-        print(f'Number of points to clone: {selected_pts_mask.sum()}')
+        #print(f'Number of points to clone: {selected_pts_mask.sum()}')
 
         new_xyz = self._xyz[selected_pts_mask]
         new_features_dc = self._features_dc[selected_pts_mask]
@@ -879,7 +885,7 @@ class GaussianModelActor():
         new_opacity = self._opacity[selected_pts_mask]
         new_scaling = self._scaling[selected_pts_mask]
         new_rotation = self._rotation[selected_pts_mask]
-        new_semantic = self._semantic[selected_pts_mask]
+        #new_semantic = self._semantic[selected_pts_mask]
 
         self.densification_postfix({
             "xyz": new_xyz,
@@ -888,7 +894,7 @@ class GaussianModelActor():
             "opacity": new_opacity,
             "scaling": new_scaling,
             "rotation": new_rotation,
-            "semantic": new_semantic,
+            #"semantic": new_semantic,
         })
 
     # def add_densification_stats(self, viewspace_point_tensor, update_filter):
@@ -918,7 +924,7 @@ class GaussianModelActor():
         self._opacity = optimizable_tensors["opacity"]
         self._scaling = optimizable_tensors["scaling"]
         self._rotation = optimizable_tensors["rotation"]
-        self._semantic = optimizable_tensors["semantic"]
+        #self._semantic = optimizable_tensors["semantic"]
 
         self.xyz_gradient_accum = self.xyz_gradient_accum[valid_points_mask]
         self.denom = self.denom[valid_points_mask]
