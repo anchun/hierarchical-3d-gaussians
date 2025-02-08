@@ -7,7 +7,7 @@ import os
 #from lib.utils.sh_utils import RGB2SH, IDFT
 #from lib.datasets.base_readers import fetchPly
 from utils.sh_utils import RGB2SH
-from utils.general_utils import inverse_sigmoid, get_expon_lr_func
+from utils.general_utils import inverse_sigmoid, get_expon_lr_func, quaternion_to_matrix, quaternion_raw_multiply
 from plyfile import PlyData, PlyElement
 from simple_knn._C import distCUDA2
 from preprocess.read_write_model import rotmat2qvec
@@ -27,52 +27,6 @@ def IDFT(time, dim):
         idft[:, even_indices] = torch.cos(torch.pi * t * even_indices)
         idft[:, odd_indices] = torch.sin(torch.pi * t * (odd_indices + 1))
         return idft
-
-
-
-def quaternion_raw_multiply(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
-    """
-    Multiply two quaternions.
-    Usual torch rules for broadcasting apply.
-
-    Args:
-        a: Quaternions as tensor of shape (..., 4), real part first.
-        b: Quaternions as tensor of shape (..., 4), real part first.
-
-    Returns:
-        The product of a and b, a tensor of quaternions shape (..., 4).
-    """
-    aw, ax, ay, az = torch.unbind(a, -1)
-    bw, bx, by, bz = torch.unbind(b, -1)
-    ow = aw * bw - ax * bx - ay * by - az * bz
-    ox = aw * bx + ax * bw + ay * bz - az * by
-    oy = aw * by - ax * bz + ay * bw + az * bx
-    oz = aw * bz + ax * by - ay * bx + az * bw
-    return torch.stack((ow, ox, oy, oz), -1)
-
-
-def quaternion_to_matrix(r):
-    norm = torch.sqrt(r[:,0]*r[:,0] + r[:,1]*r[:,1] + r[:,2]*r[:,2] + r[:,3]*r[:,3])
-
-    q = r / norm[:, None]
-
-    R = torch.zeros((q.size(0), 3, 3), device='cuda')
-
-    r = q[:, 0]
-    x = q[:, 1]
-    y = q[:, 2]
-    z = q[:, 3]
-
-    R[:, 0, 0] = 1 - 2 * (y*y + z*z)
-    R[:, 0, 1] = 2 * (x*y - r*z)
-    R[:, 0, 2] = 2 * (x*z + r*y)
-    R[:, 1, 0] = 2 * (x*y + r*z)
-    R[:, 1, 1] = 1 - 2 * (x*x + z*z)
-    R[:, 1, 2] = 2 * (y*z - r*x)
-    R[:, 2, 0] = 2 * (x*z - r*y)
-    R[:, 2, 1] = 2 * (y*z + r*x)
-    R[:, 2, 2] = 1 - 2 * (x*x + y*y)
-    return R
 
 
 def correct_gaussian_xyz(camera, xyz):
@@ -246,6 +200,7 @@ class GaussianModelActor():
         box_scale=1.5
         extent = max(length*1.5/box_scale, width*1.5/box_scale, height) / 2.
         self.extent = torch.tensor([extent]).float().cuda()   
+        print('==== extent:',self.extent)
 
         num_classes = 0 # 1 if cfg.data.get('use_semantic', False) else 0
         self.num_classes_global = 1 # cfg.data.num_classes if cfg.data.get('use_semantic', False) else 0        
@@ -315,47 +270,49 @@ class GaussianModelActor():
 
     @property
     def get_rotation(self):
-        if self.viewpoint_camera is None or self.viewpoint_camera.ego_pose is None:
-            return self.rotation_activation(self._rotation)
-
-        frame_id = self.viewpoint_camera.metadata['frame_id']
-        ego_pose_in_world = self.viewpoint_camera.ego_pose
-
-        # 1. fix object pose with learnable delta (in ego coordinate)
-        obj_rotation_in_ego = quaternion_raw_multiply(self.rotations_in_ego[frame_id].unsqueeze(0), self.delta_rotations_in_ego[frame_id].unsqueeze(0)).squeeze(0)
-
-        # 2. transform object pose to world coordinate
-        ego_rotation_in_world = matrix_to_quaternion(ego_pose_in_world[:3, :3].unsqueeze(0)).squeeze(0)
-        obj_rotation_in_world = quaternion_raw_multiply(ego_rotation_in_world.unsqueeze(0), obj_rotation_in_ego.unsqueeze(0)).squeeze(0)
-
-        # 3. transform local points to world coordinate
-        point_rotations_in_object = self.rotation_activation(self._rotation)
-        point_rotations_in_object = point_rotations_in_object.clone() # from street_gaussian_model get_rotation, why ?
-        point_rotations_in_world = quaternion_raw_multiply(obj_rotation_in_world, point_rotations_in_object)
-        return torch.nn.functional.normalize(point_rotations_in_world)
+        return self.rotation_activation(self._rotation)
+        # if self.viewpoint_camera is None or self.viewpoint_camera.ego_pose is None:
+        #     return self.rotation_activation(self._rotation)
+        #
+        # frame_id = self.viewpoint_camera.metadata['frame_id']
+        # ego_pose_in_world = self.viewpoint_camera.ego_pose
+        #
+        # # 1. fix object pose with learnable delta (in ego coordinate)
+        # obj_rotation_in_ego = quaternion_raw_multiply(self.rotations_in_ego[frame_id].unsqueeze(0), self.delta_rotations_in_ego[frame_id].unsqueeze(0)).squeeze(0)
+        #
+        # # 2. transform object pose to world coordinate
+        # ego_rotation_in_world = matrix_to_quaternion(ego_pose_in_world[:3, :3].unsqueeze(0)).squeeze(0)
+        # obj_rotation_in_world = quaternion_raw_multiply(ego_rotation_in_world.unsqueeze(0), obj_rotation_in_ego.unsqueeze(0)).squeeze(0)
+        #
+        # # 3. transform local points to world coordinate
+        # point_rotations_in_object = self.rotation_activation(self._rotation)
+        # point_rotations_in_object = point_rotations_in_object.clone() # from street_gaussian_model get_rotation, why ?
+        # point_rotations_in_world = quaternion_raw_multiply(obj_rotation_in_world, point_rotations_in_object)
+        # return torch.nn.functional.normalize(point_rotations_in_world)
 
     @property
     def get_xyz(self):
-        if self.viewpoint_camera is None or self.viewpoint_camera.ego_pose is None:
-            return self._xyz
-
-        frame_id = self.viewpoint_camera.metadata['frame_id']
-        ego_pose_in_world = self.viewpoint_camera.ego_pose
-
-        # 1. fix object pose with learnable delta (in ego coordinate)
-        obj_transform_in_ego = self.transforms_in_ego[frame_id] + self.delta_transforms_in_ego[frame_id]
-        obj_rotation_in_ego = quaternion_raw_multiply(self.rotations_in_ego[frame_id].unsqueeze(0), self.delta_rotations_in_ego[frame_id].unsqueeze(0)).squeeze(0)
-
-        # 2. transform object pose to world coordinate
-        ego_rotation_in_world = matrix_to_quaternion(ego_pose_in_world[:3, :3].unsqueeze(0)).squeeze(0)
-        obj_rotation_in_world = quaternion_raw_multiply(ego_rotation_in_world.unsqueeze(0), obj_rotation_in_ego.unsqueeze(0)).squeeze(0)
-        obj_transform_in_world = ego_pose_in_world[:3, :3] @ obj_transform_in_ego + ego_pose_in_world[:3, 3]
-
-        # 3. transform local points to world coordinate
-        xyz_in_object = self._xyz.clone() # from street_gaussian_model get_xyz, why ?
-        obj_rotation_in_world = quaternion_to_matrix(obj_rotation_in_world.unsqueeze(0))
-        xyz_in_world = torch.einsum('bij, bj -> bi', obj_rotation_in_world, xyz_in_object) + obj_transform_in_world
-        return xyz_in_world
+        return self._xyz
+        # if self.viewpoint_camera is None or self.viewpoint_camera.ego_pose is None:
+        #     return self._xyz
+        #
+        # frame_id = self.viewpoint_camera.metadata['frame_id']
+        # ego_pose_in_world = self.viewpoint_camera.ego_pose
+        #
+        # # 1. fix object pose with learnable delta (in ego coordinate)
+        # obj_transform_in_ego = self.transforms_in_ego[frame_id] + self.delta_transforms_in_ego[frame_id]
+        # obj_rotation_in_ego = quaternion_raw_multiply(self.rotations_in_ego[frame_id].unsqueeze(0), self.delta_rotations_in_ego[frame_id].unsqueeze(0)).squeeze(0)
+        #
+        # # 2. transform object pose to world coordinate
+        # ego_rotation_in_world = matrix_to_quaternion(ego_pose_in_world[:3, :3].unsqueeze(0)).squeeze(0)
+        # obj_rotation_in_world = quaternion_raw_multiply(ego_rotation_in_world.unsqueeze(0), obj_rotation_in_ego.unsqueeze(0)).squeeze(0)
+        # obj_transform_in_world = ego_pose_in_world[:3, :3] @ obj_transform_in_ego + ego_pose_in_world[:3, 3]
+        #
+        # # 3. transform local points to world coordinate
+        # xyz_in_object = self._xyz.clone() # from street_gaussian_model get_xyz, why ?
+        # obj_rotation_in_world = quaternion_to_matrix(obj_rotation_in_world.unsqueeze(0))
+        # xyz_in_world = torch.einsum('bij, bj -> bi', obj_rotation_in_world, xyz_in_object) + obj_transform_in_world
+        # return xyz_in_world
 
     @property
     def get_features(self):
@@ -400,8 +357,8 @@ class GaussianModelActor():
         if self.active_sh_degree < self.max_sh_degree:
             self.active_sh_degree += 1
 
-    def get_features_fourier(self):
-        normalized_frame = (self.viewpoint_camera.metadata['frame_id'] - self.start_frame) / (self.end_frame - self.start_frame)
+    def get_features_fourier(self, frame_id):
+        normalized_frame = (frame_id - self.start_frame) / (self.end_frame - self.start_frame)
         time = self.fourier_scale * normalized_frame
 
         idft_base = IDFT(time, self.fourier_dim)[0].cuda()
