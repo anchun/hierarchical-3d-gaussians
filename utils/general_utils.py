@@ -208,3 +208,49 @@ def matrix_to_quaternion(matrix: torch.Tensor) -> torch.Tensor:
     return quat_candidates[
         torch.nn.functional.one_hot(q_abs.argmax(dim=-1), num_classes=4) > 0.5, :
     ].reshape(batch_dim + (4,))
+
+
+def quaternion_raw_multiply(a: torch.Tensor, b: torch.Tensor) -> torch.Tensor:
+    """
+    Multiply two quaternions.
+    Usual torch rules for broadcasting apply.
+
+    Args:
+        a: Quaternions as tensor of shape (..., 4), real part first.
+        b: Quaternions as tensor of shape (..., 4), real part first.
+
+    Returns:
+        The product of a and b, a tensor of quaternions shape (..., 4).
+    """
+    aw, ax, ay, az = torch.unbind(a, -1)
+    bw, bx, by, bz = torch.unbind(b, -1)
+    ow = aw * bw - ax * bx - ay * by - az * bz
+    ox = aw * bx + ax * bw + ay * bz - az * by
+    oy = aw * by - ax * bz + ay * bw + az * bx
+    oz = aw * bz + ax * by - ay * bx + az * bw
+    return torch.stack((ow, ox, oy, oz), -1)
+
+
+def quaternion_to_matrix(r):
+    norm = torch.sqrt(r[:,0]*r[:,0] + r[:,1]*r[:,1] + r[:,2]*r[:,2] + r[:,3]*r[:,3])
+
+    q = r / norm[:, None]
+
+    R = torch.zeros((q.size(0), 3, 3), device='cuda')
+
+    r = q[:, 0]
+    x = q[:, 1]
+    y = q[:, 2]
+    z = q[:, 3]
+
+    R[:, 0, 0] = 1 - 2 * (y*y + z*z)
+    R[:, 0, 1] = 2 * (x*y - r*z)
+    R[:, 0, 2] = 2 * (x*z + r*y)
+    R[:, 1, 0] = 2 * (x*y + r*z)
+    R[:, 1, 1] = 1 - 2 * (x*x + z*z)
+    R[:, 1, 2] = 2 * (y*z - r*x)
+    R[:, 2, 0] = 2 * (x*z - r*y)
+    R[:, 2, 1] = 2 * (y*z + r*x)
+    R[:, 2, 2] = 1 - 2 * (x*x + y*y)
+    return R
+
