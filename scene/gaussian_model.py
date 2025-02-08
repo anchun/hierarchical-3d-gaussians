@@ -12,7 +12,7 @@
 import json
 import torch
 import numpy as np
-from utils.general_utils import inverse_sigmoid, get_expon_lr_func, build_rotation
+from utils.general_utils import inverse_sigmoid, get_expon_lr_func, build_rotation, quaternion_to_matrix, quaternion_raw_multiply, matrix_to_quaternion
 from torch import nn
 import os
 from utils.system_utils import mkdir_p
@@ -90,6 +90,8 @@ class GaussianModel:
 
         self.metadata = metadata
         self.setup_functions()
+        self.obj_transform_in_world_of_current_frame = None # 渲染时用于计算动态对象的xyz & rotation
+        self.obj_rotation_in_world_of_current_frame = None # 渲染时用于计算动态对象的xyz & rotation
 
     def capture(self):
         return (
@@ -126,6 +128,35 @@ class GaussianModel:
         self.optimizer.load_state_dict(opt_dict)
 
     def parse_camera(self, camera: Camera):
+        self.current_frame = camera.metadata['frame_id']
+        # 以下计算所有动态对象的坐标变换，为了效率，以张量形式一起计算所有对象
+        frame_id = camera.metadata['frame_id']
+        ego_pose_in_world = camera.ego_pose
+        obj_transforms_in_ego = []
+        obj_delta_transforms_in_ego = []
+        obj_rotations_in_ego = []
+        obj_delta_rotations_in_ego = []
+        for obj_model in self.obj_list:
+            obj_transforms_in_ego.append(obj_model.transforms_in_ego[frame_id])
+            obj_delta_transforms_in_ego.append(obj_model.delta_transforms_in_ego[frame_id])
+            obj_rotations_in_ego.append(obj_model.rotations_in_ego[frame_id])
+            obj_delta_rotations_in_ego.append(obj_model.delta_rotations_in_ego[frame_id])
+        obj_transforms_in_ego = torch.stack(obj_transforms_in_ego, dim=0)
+        obj_delta_transforms_in_ego = torch.stack(obj_delta_transforms_in_ego, dim=0)
+        obj_rotations_in_ego = torch.stack(obj_rotations_in_ego, dim=0)
+        obj_delta_rotations_in_ego = torch.stack(obj_delta_rotations_in_ego, dim=0)
+
+        # 1. fix object pose with learnable delta (in ego coordinate)
+        obj_transform_in_ego = obj_transforms_in_ego + obj_delta_transforms_in_ego
+        obj_rotation_in_ego = quaternion_raw_multiply(obj_rotations_in_ego, obj_delta_rotations_in_ego)
+
+        # 2. transform object pose to world coordinate
+        ego_rotation_in_world = matrix_to_quaternion(ego_pose_in_world[:3, :3].unsqueeze(0)).squeeze(0)
+        obj_rotation_in_world = quaternion_raw_multiply(ego_rotation_in_world, obj_rotation_in_ego)
+        # self.obj_transform_in_world_of_current_frame = ego_pose_in_world[:3, :3] @ obj_transform_in_ego + ego_pose_in_world[:3, 3]
+        self.obj_transform_in_world_of_current_frame = torch.einsum('ij,nj->ni', ego_pose_in_world[:3, :3], obj_transform_in_ego) + ego_pose_in_world[:3, 3]
+        self.obj_rotation_in_world_of_current_frame = quaternion_to_matrix(obj_rotation_in_world)
+
         # set index range
         self.graph_gaussian_range = dict()
         idx = 0
@@ -138,7 +169,7 @@ class GaussianModel:
             num_gaussians_obj = obj_model.get_xyz.shape[0]
             self.graph_gaussian_range[obj_name] = [idx, idx+num_gaussians_obj-1]
             idx += num_gaussians_obj
-            obj_model.parse_camera(camera)
+            # obj_model.parse_camera(camera)
 
     @property
     def get_scaling(self):
@@ -164,9 +195,20 @@ class GaussianModel:
         rotations = []
         rotations_bkgd = self.rotation_activation(self._rotation)
         rotations.append(rotations_bkgd)
-        for obj_model in self.obj_list:
-            rotations_obj = obj_model.get_rotation
-            rotations.append(rotations_obj)
+        if len(self.obj_list) > 0:
+            point_rotations_in_obj = []
+            obj_rotation_in_world = []
+            for i, obj_model in enumerate(self.obj_list):
+                rotations_obj = obj_model.get_rotation
+                point_rotations_in_obj.append(rotations_obj)
+                obj_rotation_in_world.append(self.obj_rotation_in_world_of_current_frame[i].expand(rotations_obj.shape[0], -1, -1))
+            point_rotations_in_obj = torch.cat(point_rotations_in_obj, dim=0)
+            point_rotations_in_obj = point_rotations_in_obj.clone()
+            obj_rotation_in_world = torch.cat(obj_rotation_in_world, dim=0)
+            point_rotations_in_world = quaternion_raw_multiply(matrix_to_quaternion(obj_rotation_in_world), point_rotations_in_obj)
+            point_rotations_in_world = torch.nn.functional.normalize(point_rotations_in_world)
+
+            rotations.append(point_rotations_in_world)
         rotations = torch.cat(rotations, dim=0)
         return rotations
 
@@ -174,9 +216,21 @@ class GaussianModel:
     def get_xyz(self):
         xyzs = []
         xyzs.append(self._xyz)
-        for obj_model in self.obj_list:
-            xyzs_obj = obj_model.get_xyz
-            xyzs.append(xyzs_obj)
+        if len(self.obj_list) > 0:
+            point_xyzs_in_obj = []
+            obj_transform_in_world = []
+            obj_rotation_in_world = []
+            for i, obj_model in enumerate(self.obj_list):
+                xyzs_obj = obj_model.get_xyz
+                point_xyzs_in_obj.append(xyzs_obj)
+                obj_transform_in_world.append(self.obj_transform_in_world_of_current_frame[i].expand(xyzs_obj.shape[0], -1))
+                obj_rotation_in_world.append(self.obj_rotation_in_world_of_current_frame[i].expand(xyzs_obj.shape[0], -1, -1))
+            point_xyzs_in_obj = torch.cat(point_xyzs_in_obj, dim=0)
+            point_xyzs_in_obj = point_xyzs_in_obj.clone()
+            obj_transform_in_world = torch.cat(obj_transform_in_world, dim=0)
+            obj_rotation_in_world = torch.cat(obj_rotation_in_world, dim=0)
+            xyz_in_world = torch.einsum('bij, bj -> bi', obj_rotation_in_world, point_xyzs_in_obj) + obj_transform_in_world
+            xyzs.append(xyz_in_world)
         xyzs = torch.cat(xyzs, dim=0)
         return xyzs
     
@@ -189,7 +243,7 @@ class GaussianModel:
         features = []
         features.append(features_bkgd)
         for obj_model in self.obj_list:
-            feature_obj = obj_model.get_features_fourier()
+            feature_obj = obj_model.get_features_fourier(self.current_frame)
             features.append(feature_obj)
         features = torch.cat(features, dim=0)
         return features
