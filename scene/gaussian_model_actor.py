@@ -127,7 +127,6 @@ class GaussianModelActor():
         box_scale=1.5
         extent = max(length*1.5/box_scale, width*1.5/box_scale, height) / 2.
         self.extent = torch.tensor([extent]).float().cuda()   
-        print('==== extent:',self.extent)
 
         num_classes = 0 # 1 if cfg.data.get('use_semantic', False) else 0
         self.num_classes_global = 1 # cfg.data.num_classes if cfg.data.get('use_semantic', False) else 0        
@@ -670,14 +669,15 @@ class GaussianModelActor():
                         
             samples_xyz = torch.matmul(rots, samples.unsqueeze(-1)).squeeze(-1) + origins # [N, M, 3]                    
             num_gaussians = self.get_xyz.shape[0]
-            points_inside_box = torch.logical_and(
-                torch.all((samples_xyz >= self.min_xyz).view(num_gaussians, -1), dim=-1),
-                torch.all((samples_xyz <= self.max_xyz).view(num_gaussians, -1), dim=-1),
-            )
-            points_outside_box = torch.logical_not(points_inside_box)           
+            if num_gaussians > 0:
+                points_inside_box = torch.logical_and(
+                    torch.all((samples_xyz >= self.min_xyz).view(num_gaussians, -1), dim=-1),
+                    torch.all((samples_xyz <= self.max_xyz).view(num_gaussians, -1), dim=-1),
+                )
+                points_outside_box = torch.logical_not(points_inside_box)           
             
-            prune_mask = torch.logical_or(prune_mask, big_points_ws)
-            prune_mask = torch.logical_or(prune_mask, points_outside_box)
+                prune_mask = torch.logical_or(prune_mask, big_points_ws)
+                prune_mask = torch.logical_or(prune_mask, points_outside_box)
             
         self.prune_points(prune_mask)
         
