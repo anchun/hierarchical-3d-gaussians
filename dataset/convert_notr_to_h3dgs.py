@@ -198,9 +198,8 @@ def project_label_to_image(dim, obj_pose, calibration):
     return points_uv, valid
 
 
-def parse_dynamic_objects(frame_id, frame, dynamic_objects):
+def parse_dynamic_objects(raw_object_ids, frame_id, frame, dynamic_objects):
     bbox_visible_dict = dict()
-    object_ids = dict()
     frame_objects = []
     for label in frame.laser_labels:
         box = label.box
@@ -215,10 +214,10 @@ def parse_dynamic_objects(frame_id, frame, dynamic_objects):
         obj_pose_vehicle[:3, :3] = rotz_matrix
         obj_pose_vehicle[:3, 3] = np.array([tx, ty, tz])
 
-        if label.id not in object_ids:
-            object_ids[label.id] = len(object_ids)
+        if label.id not in raw_object_ids:
+            raw_object_ids[label.id] = len(raw_object_ids)
 
-        label_id = object_ids[label.id]
+        label_id = raw_object_ids[label.id]
         if label_id not in bbox_visible_dict:
             bbox_visible_dict[label_id] = dict()
         bbox_visible_dict[label_id][frame_id] = []
@@ -278,28 +277,40 @@ def get_content_from_list(object_list, name):
 #    基础元数据：如长宽高、类别等
 #    起始帧号：在任一一个视角出现的最开始和最后一帧
 #    位姿：key为帧号，value为transformer、rotation(3*3矩阵)、speed
-def convert_and_filter(dynamic_objects):
+def convert_and_filter(dynamic_objects, ego_poses):
     all_objects = {}
     for frame_id, frame_objects in enumerate(dynamic_objects):
+        ego_pose = ego_poses[frame_id]
         for obj in frame_objects:
             track_id = obj['track_id']
             if track_id not in all_objects:
-                all_objects[track_id] = {'object_id': track_id, 'start_frame':1e10, 'end_frame':0, 'deformable': obj['deformable'], 'class': obj['class'], 'class_label': obj['class_label'], 'width': obj['width'], 'height': obj['height'], 'length': obj['length'], 'all_transforms':{}, 'all_rotation_matrixs':{}, 'all_speeds':{}}
+                all_objects[track_id] = {'object_id': track_id, 'start_frame':1e10, 'end_frame':0, 'deformable': obj['deformable'], 'class': obj['class'], 'class_label': obj['class_label'], 'width': obj['width'], 'height': obj['height'], 'length': obj['length'], 'all_transforms':{}, 'all_rotation_matrixs':{}, 'all_speeds':{}, 'all_transforms_in_world':{}}
             all_objects[track_id]['start_frame'] = min(all_objects[track_id]['start_frame'], frame_id)
             all_objects[track_id]['end_frame'] = max(all_objects[track_id]['end_frame'], frame_id)
             all_objects[track_id]['all_transforms'][str(frame_id)] = obj['transform']
             all_objects[track_id]['all_rotation_matrixs'][str(frame_id)] = obj['rotation_matrix']
+            pose_in_ego = np.eye(4)
+            pose_in_ego[:3,:3] = obj['rotation_matrix']
+            pose_in_ego[:3, 3] = obj['transform']
+            transform_in_world = np.dot(ego_pose, pose_in_ego)[:3,3]
             all_objects[track_id]['all_speeds'][str(frame_id)] = obj['speed']
+            all_objects[track_id]['all_transforms_in_world'][str(frame_id)] = transform_in_world
 
     output = {}
     for track_id, obj in all_objects.items():
-        speeds = obj['all_speeds']
-        sum_speed = 0
-        for frame_id, speed in speeds.items():
-            sum_speed += speed
-        avg_speed = sum_speed / len(speeds)
-        obj['avg_speed'] = avg_speed
-        if avg_speed > 0.1:
+        all_transforms_in_world = obj['all_transforms_in_world']
+        total_shift = 0
+        visible_frame_ids = [int(frame_id) for frame_id,_ in all_transforms_in_world.items()]
+        visible_frame_ids = sorted(visible_frame_ids, reverse=False)
+        for i in range(len(visible_frame_ids) - 1):
+            frame_1 = visible_frame_ids[i]
+            frame_2 = visible_frame_ids[i+1]
+            t1 = all_transforms_in_world[str(frame_1)]
+            t2 = all_transforms_in_world[str(frame_2)]
+            distance = np.sqrt(np.sum((t2 - t1) ** 2))
+            total_shift = total_shift + distance
+        is_moving_obj = total_shift > 2 and obj['class'] in ['vehicle', 'pedestrian', 'sign', 'cyclist'] # 原始pos有误差，无法精确计算，有些sign也会位移
+        if is_moving_obj:
             output[track_id] = obj
     return output
 
@@ -368,6 +379,7 @@ def extract_waymo_scene(input_path, output_dir):
         os.makedirs(os.path.join(image_dir, camera_name.lower()), exist_ok=True)
         os.makedirs(os.path.join(depth_dir, camera_name.lower()), exist_ok=True)
 
+    raw_object_ids = {}
     for frame_id, raw_frame in tqdm(enumerate(dataset), total=197):
         # if frame_id >= 1:
         #     break
@@ -400,7 +412,7 @@ def extract_waymo_scene(input_path, output_dir):
         # detail = convert_frame_to_dict(frame)
         points_in_world = extract_points(frame, None, ego_pose, point_cloud, first_frame_pos)
         # draw_depth_images(points_in_world, frame, frame_id, camera_poses_in_world, camera_intrinsics, image_dir, depth_dir)
-        parse_dynamic_objects(frame_id, frame, dynamic_objects)
+        parse_dynamic_objects(raw_object_ids, frame_id, frame, dynamic_objects)
         num_frames = num_frames + 1
     colmap_images_file.flush()
     colmap_images_file.close()
@@ -416,7 +428,7 @@ def extract_waymo_scene(input_path, output_dir):
             g=random.randint(0,255)
             b=random.randint(0,255)
             output.write(" ".join([str(c) for c in [i + 1, p.x, p.y, p.z, r, g, b, 0.01, 1, 0, 2, 0, 3,0]]) + "\n")  # rgb后面的几个值是fake的，3DGS中没用。这里为了让colmap gui加载时不崩溃
-    dynamic_objects = convert_and_filter(dynamic_objects)
+    dynamic_objects = convert_and_filter(dynamic_objects, ego_poses)
     scene_meta = {'timestamps': timestamps, 'ego_poses': ego_poses, 'dynamic_objects': dynamic_objects, 'num_frames': num_frames,
                   'img_id_2_frame_id':img_id_2_frame_id, 'img_id_2_extrinsic': img_id_2_extrinsic}
     joblib.dump(scene_meta, os.path.join(output_dir, 'scene_meta.bin'))
