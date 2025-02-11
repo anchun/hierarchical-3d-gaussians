@@ -635,8 +635,8 @@ class GaussianModel:
             l.append('scale_{}'.format(i))
         for i in range(self._rotation.shape[1]):
             l.append('rot_{}'.format(i))
-        for i in range(self._semantic.shape[1]):
-            l.append('semantic_{}'.format(i))
+        #for i in range(self._semantic.shape[1]):
+        #    l.append('semantic_{}'.format(i))
         return l
 
     def save_pt(self, path):
