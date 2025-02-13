@@ -527,8 +527,10 @@ def render_coarse(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.T
     # They will be excluded from value updates used in the splitting criteria.
     result = {"render": rendered_image,
             "viewspace_points": screenspace_points,
-            "visibility_filter" : vis_filter,
-            "radii": radii[subfilter],
+            #"visibility_filter" : vis_filter,
+            "visibility_filter" : vis_filter.nonzero().flatten().long(),
+            #"radii": radii[subfilter],
+            "radii": radii
             }
     #result.update(rendered_feature_dict)
     return result

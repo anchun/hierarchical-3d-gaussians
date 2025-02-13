@@ -56,6 +56,7 @@ class GaussianModelActor():
         model_name, 
         obj_meta=None,
         num_frames=None,
+        max_sh_degree=3,
     ):
         #cfg_model = cfg.model.gaussian
         self.model_name = model_name
@@ -140,7 +141,7 @@ class GaussianModelActor():
         self.delta_transforms_in_ego = torch.nn.Parameter(torch.zeros_like(self.transforms_in_ego).float().cuda()).requires_grad_(True)
         self.delta_rotations_in_ego = torch.nn.Parameter(torch.stack([torch.tensor([1, 0, 0, 0])] * num_frames).float().cuda()).requires_grad_(True)
         self.viewpoint_camera = None # 训练时渲染用，用于计算动态信息
-        self.max_sh_degree = 3 # TODO 什么用途？
+        self.max_sh_degree = max_sh_degree # TODO 什么用途？
 
         self.view_camera_to_xyzs = {} # 用于get_xyz缓存
         self.view_camera_to_rotations = {} # 同上

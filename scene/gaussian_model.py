@@ -55,7 +55,7 @@ class GaussianModel:
                 if obj_meta['start_frame'] == obj_meta['end_frame']:
                     continue
                 model_name = f'obj_{object_id:03d}'
-                obj_model = GaussianModelActor(model_name=model_name, obj_meta=obj_meta, num_frames=self.metadata['num_frames'])
+                obj_model = GaussianModelActor(model_name=model_name, obj_meta=obj_meta, num_frames=self.metadata['num_frames'],max_sh_degree=self.max_sh_degree)
                 obj_model.name = obj_model
                 setattr(self, model_name, obj_model)
                 #self.model_name_id[model_name] = self.models_num
@@ -401,7 +401,7 @@ class GaussianModel:
             features_rest = torch.concat((filler.cuda(), features_rest))
             scales = torch.concat((scales_scaffold.cuda()[selec], scales))
             rots = torch.concat((rots_scaffold.cuda()[selec], rots))
-            semantics = torch.concat((semantics_scaffold.cuda()[selec], semantics))
+            #semantics = torch.concat((semantics_scaffold.cuda()[selec], semantics))
             opacities = torch.concat((opacities_scaffold.cuda()[selec], opacities))
 
         self._xyz = nn.Parameter(xyz.requires_grad_(True))
@@ -770,8 +770,9 @@ class GaussianModel:
 
                 optimizable_tensors[group["name"]] = group["params"][0]
             else:
-                group["params"][0] = nn.Parameter(group["params"][0][mask].requires_grad_(True))
-                optimizable_tensors[group["name"]] = group["params"][0]
+                if group["name"] != 'semantic': # TODO
+                    group["params"][0] = nn.Parameter(group["params"][0][mask].requires_grad_(True))
+                    optimizable_tensors[group["name"]] = group["params"][0]
         return optimizable_tensors
 
     def prune_points(self, mask):
@@ -784,7 +785,7 @@ class GaussianModel:
         self._opacity = optimizable_tensors["opacity"]
         self._scaling = optimizable_tensors["scaling"]
         self._rotation = optimizable_tensors["rotation"]
-        self._semantic = optimizable_tensors["semantic"]
+        #self._semantic = optimizable_tensors["semantic"]
 
         self.xyz_gradient_accum = self.xyz_gradient_accum[valid_points_mask]
 
@@ -861,7 +862,7 @@ class GaussianModel:
         new_features_dc = self._features_dc[selected_pts_mask].repeat(N,1,1)
         new_features_rest = self._features_rest[selected_pts_mask].repeat(N,1,1)
         new_opacity = self._opacity[selected_pts_mask].repeat(N,1)
-        new_semantic = self._semantic[selected_pts_mask].repeat(N, 1)
+        new_semantic = self._semantic # [selected_pts_mask].repeat(N, 1) TODO
 
         self.densification_postfix(new_xyz, new_features_dc, new_features_rest, new_opacity, new_scaling, new_rotation, new_semantic)
 
@@ -885,7 +886,7 @@ class GaussianModel:
         new_opacities = self._opacity[selected_pts_mask]
         new_scaling = self._scaling[selected_pts_mask]
         new_rotation = self._rotation[selected_pts_mask]
-        new_semantic = self._semantic[selected_pts_mask]
+        new_semantic = self._semantic # [selected_pts_mask] TODO
 
         self.densification_postfix(new_xyz, new_features_dc, new_features_rest, new_opacities, new_scaling, new_rotation, new_semantic)
 
