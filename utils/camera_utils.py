@@ -147,6 +147,7 @@ class CameraDataset(torch.utils.data.Dataset):
         # Select sample
         info = self.list_cam_infos[index]
         X = loadCam(self.args, index, info, self.resolution_scales, self.is_test)
+        X.cam_idx = index
 
         return X
   

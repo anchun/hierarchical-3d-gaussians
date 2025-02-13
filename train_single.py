@@ -35,7 +35,7 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
     else:
         assert False, "Could not recognize scene type!"
 
-    gaussians = GaussianModel(dataset.sh_degree, scene_info.scene_meta)
+    gaussians = GaussianModel(dataset.sh_degree, scene_info.scene_meta, num_cameras=len(scene_info.train_cameras),use_camera_pose_correction=opt.use_camera_pose_correction)
     scene = Scene(dataset, scene_info, gaussians)
     gaussians.training_setup(opt)
     if checkpoint:
@@ -142,6 +142,10 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
                 else:
                     Ll1depth = 0
 
+                # if gaussians.use_camera_pose_correction:
+                #     pose_correction_reg_loss = gaussians.pose_correction.regularization_loss()
+                #     scalar_dict['pose_correction_reg_loss'] = pose_correction_reg_loss.item()
+                #     loss += 0.05 * pose_correction_reg_loss
 
                 loss.backward()
                 iter_end.record()
@@ -196,16 +200,16 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
                             gaussians._opacity.grad[:gaussians.skybox_points, :] = 0
                             gaussians._scaling.grad[:gaussians.skybox_points, :] = 0
 
-                        if gaussians._opacity.grad != None:
-                            relevant = (gaussians._opacity.grad.flatten() != 0).nonzero()
-                            relevant = relevant.flatten().long()
-                            # if(relevant.size(0) > 0):
-                            #     gaussians.optimizer.step(relevant)
-                            # else:
-                            #     gaussians.optimizer.step(relevant)
-                            #     print("No grads!")
-                            # gaussians.optimizer.zero_grad(set_to_none = True)
-                            gaussians.update_optimizer(relevant)
+                        if True:#gaussians._opacity.grad != None:
+                            # relevant = (gaussians._opacity.grad.flatten() != 0).nonzero()
+                            # relevant = relevant.flatten().long()
+                            # # if(relevant.size(0) > 0):
+                            # #     gaussians.optimizer.step(relevant)
+                            # # else:
+                            # #     gaussians.optimizer.step(relevant)
+                            # #     print("No grads!")
+                            # # gaussians.optimizer.zero_grad(set_to_none = True)
+                            gaussians.update_optimizer()
                     
                     if not args.skip_scale_big_gauss:
                         with torch.no_grad():

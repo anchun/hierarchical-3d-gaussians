@@ -13,7 +13,7 @@ from simple_knn._C import distCUDA2
 from preprocess.read_write_model import rotmat2qvec
 from scene.cameras import Camera
 import time
-
+from scene.OurAdam import Adam
 
 
 def IDFT(time, dim):
@@ -109,7 +109,9 @@ class GaussianModelActor():
             # pose = np.concatenate([t, r], axis=1)
             # pose = np.concatenate([pose, [0,0,0,1]], axis=0)
             # all_poses[frame_id] = pose
-        self.transforms_in_ego = torch.from_numpy(all_transforms).float().cuda()  # 冗余存储，其中每个动态物不一定在每一帧都出现
+
+        # 第一维是帧数，存所有帧，但每个动态物不一定在每一帧都出现，为冗余存储
+        self.transforms_in_ego = torch.from_numpy(all_transforms).float().cuda()
         self.rotations_in_ego = torch.from_numpy(all_rotations).float().cuda()
         # self.pose_in_ego = torch.from_numpy(all_rotation_matrixs).float().cuda()
 
@@ -137,13 +139,10 @@ class GaussianModelActor():
 
         self.spatial_lr_scale = extent
 
+        # delta trans和rot用于微调对象的位姿，第一维是帧数，存所有帧，但每个动态物不一定在每一帧都出现，为冗余存储
         self.delta_transforms_in_ego = torch.nn.Parameter(torch.zeros_like(self.transforms_in_ego).float().cuda()).requires_grad_(True)
         self.delta_rotations_in_ego = torch.nn.Parameter(torch.stack([torch.tensor([1, 0, 0, 0])] * num_frames).float().cuda()).requires_grad_(True)
-        self.viewpoint_camera = None # 训练时渲染用，用于计算动态信息
         self.max_sh_degree = 3 # TODO 什么用途？
-
-        self.view_camera_to_xyzs = {} # 用于get_xyz缓存
-        self.view_camera_to_rotations = {} # 同上
 
     def setup_functions(self):
         def build_covariance_from_scaling_rotation(scaling, scaling_modifier, rotation):
@@ -173,9 +172,6 @@ class GaussianModelActor():
 
         return extent
 
-    def parse_camera(self, camera: Camera):
-        self.viewpoint_camera = camera
-
     @property
     def get_modelname(self):
         return f'obj_{self.object_id:03d}'
@@ -197,48 +193,10 @@ class GaussianModelActor():
     @property
     def get_rotation(self):
         return self.rotation_activation(self._rotation)
-        # if self.viewpoint_camera is None or self.viewpoint_camera.ego_pose is None:
-        #     return self.rotation_activation(self._rotation)
-        #
-        # frame_id = self.viewpoint_camera.metadata['frame_id']
-        # ego_pose_in_world = self.viewpoint_camera.ego_pose
-        #
-        # # 1. fix object pose with learnable delta (in ego coordinate)
-        # obj_rotation_in_ego = quaternion_raw_multiply(self.rotations_in_ego[frame_id].unsqueeze(0), self.delta_rotations_in_ego[frame_id].unsqueeze(0)).squeeze(0)
-        #
-        # # 2. transform object pose to world coordinate
-        # ego_rotation_in_world = matrix_to_quaternion(ego_pose_in_world[:3, :3].unsqueeze(0)).squeeze(0)
-        # obj_rotation_in_world = quaternion_raw_multiply(ego_rotation_in_world.unsqueeze(0), obj_rotation_in_ego.unsqueeze(0)).squeeze(0)
-        #
-        # # 3. transform local points to world coordinate
-        # point_rotations_in_object = self.rotation_activation(self._rotation)
-        # point_rotations_in_object = point_rotations_in_object.clone() # from street_gaussian_model get_rotation, why ?
-        # point_rotations_in_world = quaternion_raw_multiply(obj_rotation_in_world, point_rotations_in_object)
-        # return torch.nn.functional.normalize(point_rotations_in_world)
 
     @property
     def get_xyz(self):
         return self._xyz
-        # if self.viewpoint_camera is None or self.viewpoint_camera.ego_pose is None:
-        #     return self._xyz
-        #
-        # frame_id = self.viewpoint_camera.metadata['frame_id']
-        # ego_pose_in_world = self.viewpoint_camera.ego_pose
-        #
-        # # 1. fix object pose with learnable delta (in ego coordinate)
-        # obj_transform_in_ego = self.transforms_in_ego[frame_id] + self.delta_transforms_in_ego[frame_id]
-        # obj_rotation_in_ego = quaternion_raw_multiply(self.rotations_in_ego[frame_id].unsqueeze(0), self.delta_rotations_in_ego[frame_id].unsqueeze(0)).squeeze(0)
-        #
-        # # 2. transform object pose to world coordinate
-        # ego_rotation_in_world = matrix_to_quaternion(ego_pose_in_world[:3, :3].unsqueeze(0)).squeeze(0)
-        # obj_rotation_in_world = quaternion_raw_multiply(ego_rotation_in_world.unsqueeze(0), obj_rotation_in_ego.unsqueeze(0)).squeeze(0)
-        # obj_transform_in_world = ego_pose_in_world[:3, :3] @ obj_transform_in_ego + ego_pose_in_world[:3, 3]
-        #
-        # # 3. transform local points to world coordinate
-        # xyz_in_object = self._xyz.clone() # from street_gaussian_model get_xyz, why ?
-        # obj_rotation_in_world = quaternion_to_matrix(obj_rotation_in_world.unsqueeze(0))
-        # xyz_in_world = torch.einsum('bij, bj -> bi', obj_rotation_in_world, xyz_in_object) + obj_transform_in_world
-        # return xyz_in_world
 
     @property
     def get_features(self):
@@ -518,7 +476,8 @@ class GaussianModelActor():
         
         self.percent_dense = 0.01 # training_args.percent_dense
         self.percent_big_ws = 0.1 # training_args.percent_big_ws
-        self.optimizer = torch.optim.Adam(l, lr=0.0, eps=1e-15)
+        # self.optimizer = torch.optim.Adam(l, lr=0.0, eps=1e-15)
+        self.optimizer = Adam(l, lr=0.0, eps=1e-15)
         self.xyz_scheduler_args = get_expon_lr_func(
             lr_init=training_args.position_lr_init * self.spatial_lr_scale,
             lr_final=training_args.position_lr_final * self.spatial_lr_scale,
@@ -531,8 +490,11 @@ class GaussianModelActor():
         self.tensor_dict = dict()
 
     def update_optimizer(self):
-        self.optimizer.step()
-        self.optimizer.zero_grad(set_to_none=True)
+        if self._opacity.grad != None:
+            relevant = (self._opacity.grad.flatten() != 0).nonzero()
+            relevant = relevant.flatten().long()
+            self.optimizer.step(relevant)
+            self.optimizer.zero_grad(set_to_none = True)
 
     def prune_optimizer(self, mask, prune_list=None):
         optimizable_tensors = {}
@@ -629,8 +591,6 @@ class GaussianModelActor():
         return optimizable_tensors
 
     def densify_and_prune(self, max_grad, min_opacity, prune_big_points):
-        self.view_camera_to_xyzs = {}
-        self.view_camera_to_rotations = {}
         if not (self.random_initialization or self.deformable):
             max_grad = cfg.optim.get('densify_grad_threshold_obj', max_grad)
             if cfg.optim.get('densify_grad_abs_obj', False):

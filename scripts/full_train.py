@@ -64,6 +64,7 @@ if __name__ == '__main__':
     parser.add_argument('--use_slurm', action="store_true", default=False)
     parser.add_argument('--skip_if_exists', action="store_true", default=False, help="Skip training a chunk if it already has a hierarchy")
     parser.add_argument('--keep_running', action="store_true", default=False, help="Keep running even if a chunk processing fails")
+    parser.add_argument('--chunk_output_dir', default="")
     args = parser.parse_args()
     print(args.extra_training_args)
 
@@ -178,7 +179,9 @@ if __name__ == '__main__':
     chunk_names = os.listdir(chunks_dir)
     for chunk_name in chunk_names:
         source_chunk = os.path.join(chunks_dir, chunk_name)
-        trained_chunk = os.path.join(output_dir, "trained_chunks", chunk_name)
+        if args.chunk_output_dir == "":
+            args.chunk_output_dir = "trained_chunks"
+        trained_chunk = os.path.join(output_dir, args.chunk_output_dir, chunk_name)
 
         file_hier_opt = os.path.join(trained_chunk, "hierarchy.hier_opt")
         if args.skip_if_exists and os.path.exists(file_hier_opt):

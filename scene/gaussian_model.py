@@ -26,6 +26,7 @@ from scene.OurAdam import Adam
 from scene.cameras import Camera
 from scene.gaussian_model_actor import GaussianModelActor
 import time
+from scene.camera_pose_corretion import PoseCorrection
 
 class GaussianModel:
 
@@ -58,13 +59,19 @@ class GaussianModel:
                 obj_model = GaussianModelActor(model_name=model_name, obj_meta=obj_meta, num_frames=self.metadata['num_frames'])
                 obj_model.name = obj_model
                 setattr(self, model_name, obj_model)
-                #self.model_name_id[model_name] = self.models_num
                 self.obj_list.append(obj_model)
-                # self.models_num += 1
 
+        if self.use_camera_pose_correction:
+            # self.pose_correction_trans = torch.nn.Parameter(torch.zeros(self.num_cameras, 3).float().cuda()).requires_grad_(True)
+            # self.pose_correction_rots = torch.nn.Parameter(torch.tensor([[1, 0, 0, 0]]).repeat(self.num_cameras, 1).float().cuda()).requires_grad_(True)
+            self.pose_correction = PoseCorrection(self.num_cameras)
+            print('==== use camera pose correction, num of cameras:', self.num_cameras)
+        else:
+            self.pose_correction = None
 
-    def __init__(self, sh_degree : int, metadata: dict, num_classes: int=1):
+    def __init__(self, sh_degree : int, metadata: dict, num_cameras: int, num_classes: int=1, use_camera_pose_correction: bool=False):
         self.num_classes = num_classes
+        self.use_camera_pose_correction = use_camera_pose_correction
         self.active_sh_degree = 0
         self.max_sh_degree = sh_degree  
         self._xyz = torch.empty(0)
@@ -82,6 +89,7 @@ class GaussianModel:
         self.spatial_lr_scale = 0
         self.nodes = None
         self.boxes = None
+        self.num_cameras = num_cameras
 
         self.pretrained_exposures = None
 
@@ -129,6 +137,7 @@ class GaussianModel:
 
     def parse_camera(self, camera: Camera):
         self.current_frame = camera.metadata['frame_id']
+        self.current_camera_idx = camera.cam_idx
         # 以下计算所有动态对象的坐标变换，为了效率，以张量形式一起计算所有对象
         frame_id = camera.metadata['frame_id']
         ego_pose_in_world = camera.ego_pose
@@ -154,7 +163,11 @@ class GaussianModel:
         ego_rotation_in_world = matrix_to_quaternion(ego_pose_in_world[:3, :3].unsqueeze(0)).squeeze(0)
         obj_rotation_in_world = quaternion_raw_multiply(ego_rotation_in_world, obj_rotation_in_ego)
         # self.obj_transform_in_world_of_current_frame = ego_pose_in_world[:3, :3] @ obj_transform_in_ego + ego_pose_in_world[:3, 3]
-        self.obj_transform_in_world_of_current_frame = torch.einsum('ij,nj->ni', ego_pose_in_world[:3, :3], obj_transform_in_ego) + ego_pose_in_world[:3, 3]
+        # self.obj_transform_in_world_of_current_frame = torch.einsum('ij,nj->ni', ego_pose_in_world[:3, :3], obj_transform_in_ego) + ego_pose_in_world[:3, 3]
+        ego_rotation_in_world = ego_pose_in_world[:3, :3].expand(obj_transform_in_ego.shape[0], -1, -1)
+        ego_transform_in_world = ego_pose_in_world[:3, 3].unsqueeze(0).expand(obj_transform_in_ego.shape[0], -1, -1)
+        self.obj_transform_in_world_of_current_frame = torch.bmm(ego_rotation_in_world, obj_transform_in_ego.unsqueeze(-1)).transpose(1, 2) + ego_transform_in_world
+        self.obj_transform_in_world_of_current_frame = self.obj_transform_in_world_of_current_frame.squeeze(1)
         self.obj_rotation_in_world_of_current_frame = quaternion_to_matrix(obj_rotation_in_world)
 
         # set index range
@@ -169,7 +182,6 @@ class GaussianModel:
             num_gaussians_obj = obj_model.get_xyz.shape[0]
             self.graph_gaussian_range[obj_name] = [idx, idx+num_gaussians_obj-1]
             idx += num_gaussians_obj
-            # obj_model.parse_camera(camera)
 
     @property
     def get_scaling(self):
@@ -189,7 +201,34 @@ class GaussianModel:
     @property
     def get_bg_scaling(self):
         return self.scaling_activation(self._scaling)
-    
+
+    # def correct_gaussian_xyz(self, camera_idx, xyz: torch.Tensor):
+    #     # xyz: [N, 3]
+    #     try:
+    #         pose_correction_trans = self.pose_correction_trans[camera_idx]
+    #         pose_correction_rot = self.pose_correction_rots[camera_idx]
+    #     except Exception as e:
+    #         print('==== correct_gaussian_xyz exception, camera_idx:', camera_idx, ', len of self.pose_correction_trans:', len(self.pose_correction_trans), ', len of self.pose_correction_rots:', len(self.pose_correction_rots))
+    #     pose_correction_rot = torch.nn.functional.normalize(pose_correction_rot.unsqueeze(0), dim=-1)
+    #     pose_correction_rot = quaternion_to_matrix(pose_correction_rot).squeeze(0)
+    #     pose_correction_matrix = torch.cat([pose_correction_rot, pose_correction_trans[:, None]], dim=-1)
+    #     padding = torch.tensor([[0, 0, 0, 1]]).float().cuda()
+    #     pose_correction_matrix = torch.cat([pose_correction_matrix, padding], dim=0)
+    #     xyz = torch.cat([xyz, torch.ones_like(xyz[..., :1])], dim=-1)
+    #     xyz = xyz @ pose_correction_matrix.T
+    #     xyz = xyz[:, :3]
+    #     return xyz
+    #
+    # def correct_gaussian_rotation(self, camera_idx, rotation: torch.Tensor):
+    #     # rotation: [N, 4]
+    #     try:
+    #         pose_correction_rot = self.pose_correction_rots[camera_idx]
+    #     except Exception as e:
+    #         print('==== correct_gaussian_xyz exception, camera_idx:', camera_idx, ', len of pose_correction_rots:', len(self.pose_correction_rots))
+    #     pose_correction_rot = torch.nn.functional.normalize(pose_correction_rot.unsqueeze(0), dim=-1)
+    #     rotation = quaternion_raw_multiply(pose_correction_rot, rotation)
+    #     return rotation
+
     @property
     def get_rotation(self):
         rotations = []
@@ -210,6 +249,8 @@ class GaussianModel:
 
             rotations.append(point_rotations_in_world)
         rotations = torch.cat(rotations, dim=0)
+        if self.use_camera_pose_correction:
+            rotations = self.pose_correction.correct_gaussian_rotation(self.current_camera_idx, rotations)
         return rotations
 
     @property
@@ -232,6 +273,8 @@ class GaussianModel:
             xyz_in_world = torch.einsum('bij, bj -> bi', obj_rotation_in_world, point_xyzs_in_obj) + obj_transform_in_world
             xyzs.append(xyz_in_world)
         xyzs = torch.cat(xyzs, dim=0)
+        if self.use_camera_pose_correction:
+            xyzs = self.pose_correction.correct_gaussian_xyz(self.current_camera_idx, xyzs)
         return xyzs
     
     @property
@@ -446,9 +489,17 @@ class GaussianModel:
                                                     lr_delay_mult=training_args.position_lr_delay_mult,
                                                     max_steps=training_args.position_lr_max_steps)
         self.exposure_scheduler_args = get_expon_lr_func(training_args.exposure_lr_init, training_args.exposure_lr_final, lr_delay_steps=training_args.exposure_lr_delay_steps, lr_delay_mult=training_args.exposure_lr_delay_mult, max_steps=training_args.iterations)
-
+        self.pose_correction_scheduler_args = get_expon_lr_func(
+            # warmup_steps=0,
+            lr_init=5e-6,
+            lr_final=1e-6,
+            max_steps=training_args.iterations,
+        )
         for obj_model in self.obj_list:
             obj_model.training_setup(training_args)
+
+        if self.pose_correction is not None:
+            self.pose_correction.training_setup(training_args.iterations)
        
     def load_ply_file(self, path, degree):
         plydata = PlyData.read(path)
@@ -612,16 +663,29 @@ class GaussianModel:
             if param_group["name"] == "xyz":
                 lr = self.xyz_scheduler_args(iteration)
                 param_group['lr'] = lr
-                return lr
+                # return lr
+            # elif param_group["name"] == "pose_correction_trans" or param_group["name"] == "pose_correction_rots":
+            #     lr = self.pose_correction_scheduler_args(iteration)
+            #     param_group['lr'] = lr
 
         for obj_model in self.obj_list:
-            obj_model.update_learning_rate()
+            obj_model.update_learning_rate(iteration)
 
-    def update_optimizer(self, relevant):
-        self.optimizer.step(relevant)
-        self.optimizer.zero_grad(set_to_none = True)
+        if self.pose_correction is not None:
+            self.pose_correction.update_learning_rate(iteration)
+
+    def update_optimizer(self):
+        if self._opacity.grad != None:
+            relevant = (self._opacity.grad.flatten() != 0).nonzero()
+            relevant = relevant.flatten().long()
+            self.optimizer.step(relevant)
+            self.optimizer.zero_grad(set_to_none = True)
+
         for obj_model in self.obj_list:
             obj_model.update_optimizer()
+
+        if self.pose_correction is not None:
+            self.pose_correction.update_optimizer()
 
     def construct_list_of_attributes(self):
         l = ['x', 'y', 'z', 'nx', 'ny', 'nz']
