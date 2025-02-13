@@ -142,7 +142,7 @@ class GaussianModelActor():
         # delta trans和rot用于微调对象的位姿，第一维是帧数，存所有帧，但每个动态物不一定在每一帧都出现，为冗余存储
         self.delta_transforms_in_ego = torch.nn.Parameter(torch.zeros_like(self.transforms_in_ego).float().cuda()).requires_grad_(True)
         self.delta_rotations_in_ego = torch.nn.Parameter(torch.stack([torch.tensor([1, 0, 0, 0])] * num_frames).float().cuda()).requires_grad_(True)
-        self.max_sh_degree = 3 # TODO 什么用途？
+        self.max_sh_degree = max_sh_degree # TODO 什么用途？
 
     def setup_functions(self):
         def build_covariance_from_scaling_rotation(scaling, scaling_modifier, rotation):
