@@ -56,6 +56,7 @@ class GaussianModelActor():
         model_name, 
         obj_meta=None,
         num_frames=None,
+        max_sh_degree=1,
     ):
         #cfg_model = cfg.model.gaussian
         self.model_name = model_name
@@ -471,13 +472,13 @@ class GaussianModelActor():
             {'params': [self._rotation], 'lr': training_args.rotation_lr, "name": "rotation"},
             {'params': [self.delta_transforms_in_ego], 'lr': 0.005, "name": "delta_transform"},
             {'params': [self.delta_rotations_in_ego], 'lr': 0.001, "name": "delta_rotation"},
-            # {'params': [self._semantic], 'lr': training_args.semantic_lr, "name": "semantic"},
+            {'params': [self._semantic], 'lr': training_args.semantic_lr, "name": "semantic"},
         ]
         
         self.percent_dense = 0.01 # training_args.percent_dense
         self.percent_big_ws = 0.1 # training_args.percent_big_ws
         # self.optimizer = torch.optim.Adam(l, lr=0.0, eps=1e-15)
-        self.optimizer = Adam(l, lr=0.0, eps=1e-15)
+        self.optimizer = torch.optim.Adam(l, lr=0.0, eps=1e-15)
         self.xyz_scheduler_args = get_expon_lr_func(
             lr_init=training_args.position_lr_init * self.spatial_lr_scale,
             lr_final=training_args.position_lr_final * self.spatial_lr_scale,
@@ -490,11 +491,15 @@ class GaussianModelActor():
         self.tensor_dict = dict()
 
     def update_optimizer(self):
-        if self._opacity.grad != None:
-            relevant = (self._opacity.grad.flatten() != 0).nonzero()
-            relevant = relevant.flatten().long()
-            self.optimizer.step(relevant)
-            self.optimizer.zero_grad(set_to_none = True)
+        #if self._opacity.grad != None:
+        #    relevant = (self._opacity.grad.flatten() != 0).nonzero()
+        #    relevant = relevant.flatten().long()
+        #    if relevant.shape[0] > 0:
+        #        print('==== relevant.shape:', relevant.shape, ', max relevant:', max(relevant))
+        #    self.optimizer.step(relevant)
+        #    self.optimizer.zero_grad(set_to_none = True)
+        self.optimizer.step()
+        self.optimizer.zero_grad(set_to_none=True)
 
     def prune_optimizer(self, mask, prune_list=None):
         optimizable_tensors = {}
@@ -658,7 +663,7 @@ class GaussianModelActor():
         self._opacity = optimizable_tensors["opacity"]
         self._scaling = optimizable_tensors["scaling"]
         self._rotation = optimizable_tensors["rotation"]
-        #self._semantic = optimizable_tensors["semantic"]
+        self._semantic = optimizable_tensors["semantic"]
 
         cat_points_num = self.get_xyz.shape[0] - self.xyz_gradient_accum.shape[0]
         self.xyz_gradient_accum = torch.cat([self.xyz_gradient_accum, torch.zeros(cat_points_num, 2).cuda()], dim=0)
@@ -696,7 +701,7 @@ class GaussianModelActor():
         new_features_dc = self._features_dc[selected_pts_mask].repeat(N, 1, 1)
         new_features_rest = self._features_rest[selected_pts_mask].repeat(N, 1, 1)
         new_opacity = self._opacity[selected_pts_mask].repeat(N, 1)
-        #new_semantic = self._semantic[selected_pts_mask].repeat(N, 1)
+        new_semantic = self._semantic[selected_pts_mask].repeat(N, 1)
 
         self.densification_postfix({
             "xyz": new_xyz,
@@ -705,7 +710,7 @@ class GaussianModelActor():
             "opacity": new_opacity,
             "scaling": new_scaling,
             "rotation": new_rotation,
-            #"semantic": new_semantic,
+            "semantic": new_semantic,
         })
 
         prune_filter = torch.cat(
@@ -729,7 +734,7 @@ class GaussianModelActor():
         new_opacity = self._opacity[selected_pts_mask]
         new_scaling = self._scaling[selected_pts_mask]
         new_rotation = self._rotation[selected_pts_mask]
-        #new_semantic = self._semantic[selected_pts_mask]
+        new_semantic = self._semantic[selected_pts_mask]
 
         self.densification_postfix({
             "xyz": new_xyz,
@@ -738,7 +743,7 @@ class GaussianModelActor():
             "opacity": new_opacity,
             "scaling": new_scaling,
             "rotation": new_rotation,
-            #"semantic": new_semantic,
+            "semantic": new_semantic,
         })
 
     # def add_densification_stats(self, viewspace_point_tensor, update_filter):
@@ -768,7 +773,7 @@ class GaussianModelActor():
         self._opacity = optimizable_tensors["opacity"]
         self._scaling = optimizable_tensors["scaling"]
         self._rotation = optimizable_tensors["rotation"]
-        #self._semantic = optimizable_tensors["semantic"]
+        self._semantic = optimizable_tensors["semantic"]
 
         self.xyz_gradient_accum = self.xyz_gradient_accum[valid_points_mask]
         self.denom = self.denom[valid_points_mask]

@@ -65,6 +65,8 @@ if __name__ == '__main__':
     parser.add_argument('--skip_if_exists', action="store_true", default=False, help="Skip training a chunk if it already has a hierarchy")
     parser.add_argument('--keep_running', action="store_true", default=False, help="Keep running even if a chunk processing fails")
     parser.add_argument('--chunk_output_dir', default="")
+    parser.add_argument('--use_camera_pose_correction', action="store_true", default=False)
+    parser.add_argument('--port', default=6009)
     args = parser.parse_args()
     print(args.extra_training_args)
 
@@ -111,7 +113,8 @@ if __name__ == '__main__':
                 "--sh_degree", str(args.sh_degree),
                 "-i", images_dir,
                 "--skybox_num", "100000",
-                "--model_path", os.path.join(output_dir, "scaffold")
+                "--model_path", os.path.join(output_dir, "scaffold"),
+                "--port", str(args.port),
             ])
             if masks_dir != "":
                 train_coarse_args += " --alpha_masks " + masks_dir
@@ -135,14 +138,20 @@ if __name__ == '__main__':
         masks_dir = os.path.join("../", masks_dir)
 
     ## Now we can train each chunks using the scaffold previously created
+    if args.use_camera_pose_correction:
+        camera_correct = '--use_camera_pose_correction'
+    else:
+        camera_correct = ''
     train_chunk_args =  " ".join([
         "python", "-u train_single.py",
-        "--save_iterations -1",
+        "--save_iterations 10000 20000 30000",
         "--sh_degree", str(args.sh_degree),
         f"--iterations {args.chunks_iterations}",
         f"-i {images_dir}", 
         f"-d {depths_dir}",
         f"--scaffold_file {output_dir}/scaffold/point_cloud/iteration_{args.course_iterations}",
+        f"--port {args.port}",
+        f"{camera_correct}",
         "--skybox_locked" 
     ])
     if args.disable_viewer:
@@ -167,6 +176,7 @@ if __name__ == '__main__':
         "--sh_degree", str(args.sh_degree),
         f"-i {images_dir}", 
         f"--scaffold_file {output_dir}/scaffold/point_cloud/iteration_{args.course_iterations}",
+        f"--port {args.port}",
     ])
     if args.disable_viewer:
         post_opt_chunk_args += " --disable_viewer"

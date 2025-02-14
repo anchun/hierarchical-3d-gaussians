@@ -65,7 +65,6 @@ class GaussianModel:
             # self.pose_correction_trans = torch.nn.Parameter(torch.zeros(self.num_cameras, 3).float().cuda()).requires_grad_(True)
             # self.pose_correction_rots = torch.nn.Parameter(torch.tensor([[1, 0, 0, 0]]).repeat(self.num_cameras, 1).float().cuda()).requires_grad_(True)
             self.pose_correction = PoseCorrection(self.num_cameras)
-            print('==== use camera pose correction, num of cameras:', self.num_cameras)
         else:
             self.pose_correction = None
 
@@ -699,8 +698,8 @@ class GaussianModel:
             l.append('scale_{}'.format(i))
         for i in range(self._rotation.shape[1]):
             l.append('rot_{}'.format(i))
-        #for i in range(self._semantic.shape[1]):
-        #    l.append('semantic_{}'.format(i))
+        for i in range(self._semantic.shape[1]):
+            l.append('semantic_{}'.format(i))
         return l
 
     def save_pt(self, path):
@@ -757,8 +756,8 @@ class GaussianModel:
         dtype_full = [(attribute, 'f4') for attribute in self.construct_list_of_attributes()]
 
         elements = np.empty(xyz.shape[0], dtype=dtype_full)
-        #attributes = np.concatenate((xyz, normals, f_dc, f_rest, opacities, scale, rotation, semantic), axis=1)
-        attributes = np.concatenate((xyz, normals, f_dc, f_rest, opacities, scale, rotation), axis=1)
+        attributes = np.concatenate((xyz, normals, f_dc, f_rest, opacities, scale, rotation, semantic), axis=1)
+        #attributes = np.concatenate((xyz, normals, f_dc, f_rest, opacities, scale, rotation), axis=1)
         elements[:] = list(map(tuple, attributes))
         el = PlyElement.describe(elements, 'vertex')
         # PlyData([el]).write(path)
@@ -848,7 +847,7 @@ class GaussianModel:
         self._opacity = optimizable_tensors["opacity"]
         self._scaling = optimizable_tensors["scaling"]
         self._rotation = optimizable_tensors["rotation"]
-        #self._semantic = optimizable_tensors["semantic"]
+        self._semantic = optimizable_tensors["semantic"]
 
         self.xyz_gradient_accum = self.xyz_gradient_accum[valid_points_mask]
 

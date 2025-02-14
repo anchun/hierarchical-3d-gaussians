@@ -44,7 +44,7 @@ class CameraInfo(NamedTuple):
     height: int
     is_test: bool
     metadata: dict
-    cam_idx: int
+    cam_idx: int = 0
 
 class SceneInfo(NamedTuple):
     point_cloud: BasicPointCloud
