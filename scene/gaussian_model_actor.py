@@ -346,7 +346,8 @@ class GaussianModelActor():
         dtype_full = [(attribute, 'f4') for attribute in self.construct_list_of_attributes()]
 
         elements = np.empty(xyz.shape[0], dtype=dtype_full)
-        attributes = np.concatenate((xyz, normals, f_dc, f_rest, opacities, scale, rotation, semantic), axis=1)
+        #attributes = np.concatenate((xyz, normals, f_dc, f_rest, opacities, scale, rotation, semantic), axis=1)
+        attributes = np.concatenate((xyz, normals, f_dc, f_rest, opacities, scale, rotation, ), axis=1)
         elements[:] = list(map(tuple, attributes))
 
         return elements
@@ -571,8 +572,8 @@ class GaussianModelActor():
             l.append('scale_{}'.format(i))
         for i in range(self._rotation.shape[1]):
             l.append('rot_{}'.format(i))
-        for i in range(self._semantic.shape[1]):
-            l.append('semantic_{}'.format(i))
+        #for i in range(self._semantic.shape[1]):
+        #    l.append('semantic_{}'.format(i))
         return l
 
 

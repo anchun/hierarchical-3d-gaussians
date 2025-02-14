@@ -1,3 +1,4 @@
+import shutil
 import os, sys
 import subprocess
 import argparse
@@ -66,6 +67,7 @@ if __name__ == '__main__':
     parser.add_argument('--keep_running', action="store_true", default=False, help="Keep running even if a chunk processing fails")
     parser.add_argument('--chunk_output_dir', default="")
     parser.add_argument('--use_camera_pose_correction', action="store_true", default=False)
+    parser.add_argument("--save_iterations", nargs="+", type=int, default=[30_000])
     parser.add_argument('--port', default=6009)
     args = parser.parse_args()
     print(args.extra_training_args)
@@ -144,9 +146,9 @@ if __name__ == '__main__':
         camera_correct = ''
     train_chunk_args =  " ".join([
         "python", "-u train_single.py",
-        "--save_iterations 10000 20000 30000",
         "--sh_degree", str(args.sh_degree),
         f"--iterations {args.chunks_iterations}",
+        f"--save_iterations {" ".join([str(i) for i in args.save_iterations])}",
         f"-i {images_dir}", 
         f"-d {depths_dir}",
         f"--scaffold_file {output_dir}/scaffold/point_cloud/iteration_{args.course_iterations}",
@@ -192,6 +194,8 @@ if __name__ == '__main__':
         if args.chunk_output_dir == "":
             args.chunk_output_dir = "trained_chunks"
         trained_chunk = os.path.join(output_dir, args.chunk_output_dir, chunk_name)
+        if os.path.exists(trained_chunk):
+            shutil.rmtree(trained_chunk)
 
         file_hier_opt = os.path.join(trained_chunk, "hierarchy.hier_opt")
         if args.skip_if_exists and os.path.exists(file_hier_opt):

@@ -26,8 +26,9 @@ def render(
     """
 
     pc.parse_camera(viewpoint_camera)
+    xyzs = pc.get_xyz
     # Create zero tensor. We will use it to make pytorch return gradients of the 2D (screen-space) means
-    screenspace_points = torch.zeros_like(pc.get_xyz, dtype=pc.get_xyz.dtype, requires_grad=True, device="cuda") + 0
+    screenspace_points = torch.zeros_like(xyzs, dtype=xyzs.dtype, requires_grad=True, device="cuda") + 0
     try:
         screenspace_points.retain_grad()
     except:
@@ -65,7 +66,7 @@ def render(
 
     rasterizer = GaussianRasterizer(raster_settings=raster_settings)
 
-    means3D = pc.get_xyz
+    means3D = xyzs
     means2D = screenspace_points
     opacity = pc.get_opacity
 
@@ -85,7 +86,7 @@ def render(
     if override_color is None:
         if pipe.convert_SHs_python:
             shs_view = pc.get_features.transpose(1, 2).view(-1, 3, (pc.max_sh_degree+1)**2)
-            dir_pp = (pc.get_xyz - viewpoint_camera.camera_center.repeat(pc.get_features.shape[0], 1))
+            dir_pp = (xyzs - viewpoint_camera.camera_center.repeat(pc.get_features.shape[0], 1))
             dir_pp_normalized = dir_pp/dir_pp.norm(dim=1, keepdim=True)
             sh2rgb = eval_sh(pc.active_sh_degree, shs_view, dir_pp_normalized)
             colors_precomp = torch.clamp_min(sh2rgb + 0.5, 0.0)
@@ -105,11 +106,12 @@ def render(
         rotations = rotations[indices].contiguous()
 
     feature_names = []
+    feature_dims = []
     features = []
     if False: #cfg.data.get('use_semantic', False):
         semantics = pc.get_semantic
         feature_names.append('semantic')
-        feature_dims.append(semantics.shape[-1])
+        #feature_dims.append(semantics.shape[-1])
         features.append(semantics)
 
     if len(features) > 0:
@@ -156,7 +158,7 @@ def render(
 
     subfilter = radii > 0
     if indices is not None:
-        vis_filter = torch.zeros(pc.get_xyz.size(0), dtype=bool, device="cuda")
+        vis_filter = torch.zeros(xyzs.size(0), dtype=bool, device="cuda")
         w = vis_filter[indices]
         w[subfilter] = True
         vis_filter[indices] = w

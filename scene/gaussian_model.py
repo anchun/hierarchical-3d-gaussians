@@ -232,6 +232,8 @@ class GaussianModel:
     def get_rotation(self):
         rotations = []
         rotations_bkgd = self.rotation_activation(self._rotation)
+        if self.use_camera_pose_correction:
+            rotations_bkgd = self.pose_correction.correct_gaussian_rotation(self.current_camera_idx, rotations_bkgd)
         rotations.append(rotations_bkgd)
         if len(self.obj_list) > 0:
             point_rotations_in_obj = []
@@ -248,14 +250,17 @@ class GaussianModel:
 
             rotations.append(point_rotations_in_world)
         rotations = torch.cat(rotations, dim=0)
-        if self.use_camera_pose_correction:
-            rotations = self.pose_correction.correct_gaussian_rotation(self.current_camera_idx, rotations)
+        #if self.use_camera_pose_correction:
+        #    rotations = self.pose_correction.correct_gaussian_rotation(self.current_camera_idx, rotations)
         return rotations
 
     @property
     def get_xyz(self):
         xyzs = []
-        xyzs.append(self._xyz)
+        if self.use_camera_pose_correction:
+            xyzs.append(self.pose_correction.correct_gaussian_xyz(self.current_camera_idx, self._xyz))
+        else:
+            xyzs.append(self._xyz)
         if len(self.obj_list) > 0:
             point_xyzs_in_obj = []
             obj_transform_in_world = []
@@ -272,8 +277,8 @@ class GaussianModel:
             xyz_in_world = torch.einsum('bij, bj -> bi', obj_rotation_in_world, point_xyzs_in_obj) + obj_transform_in_world
             xyzs.append(xyz_in_world)
         xyzs = torch.cat(xyzs, dim=0)
-        if self.use_camera_pose_correction:
-            xyzs = self.pose_correction.correct_gaussian_xyz(self.current_camera_idx, xyzs)
+        #if self.use_camera_pose_correction:
+        #    xyzs = self.pose_correction.correct_gaussian_xyz(self.current_camera_idx, xyzs)
         return xyzs
     
     @property
@@ -293,7 +298,7 @@ class GaussianModel:
     @property
     def get_semantic(self):
         semantics = []
-        if self.semantic_mode == 'logits':
+        if True: #self.semantic_mode == 'logits':
             semantic_bkgd = self._semantic
         else: # 'probabilities':
             semantic_bkgd = torch.nn.functional.softmax(self._semantic, dim=1)
@@ -698,8 +703,8 @@ class GaussianModel:
             l.append('scale_{}'.format(i))
         for i in range(self._rotation.shape[1]):
             l.append('rot_{}'.format(i))
-        for i in range(self._semantic.shape[1]):
-            l.append('semantic_{}'.format(i))
+        #for i in range(self._semantic.shape[1]):
+        #    l.append('semantic_{}'.format(i))
         return l
 
     def save_pt(self, path):
@@ -756,8 +761,8 @@ class GaussianModel:
         dtype_full = [(attribute, 'f4') for attribute in self.construct_list_of_attributes()]
 
         elements = np.empty(xyz.shape[0], dtype=dtype_full)
-        attributes = np.concatenate((xyz, normals, f_dc, f_rest, opacities, scale, rotation, semantic), axis=1)
-        #attributes = np.concatenate((xyz, normals, f_dc, f_rest, opacities, scale, rotation), axis=1)
+        #attributes = np.concatenate((xyz, normals, f_dc, f_rest, opacities, scale, rotation, semantic), axis=1)
+        attributes = np.concatenate((xyz, normals, f_dc, f_rest, opacities, scale, rotation), axis=1)
         elements[:] = list(map(tuple, attributes))
         el = PlyElement.describe(elements, 'vertex')
         # PlyData([el]).write(path)
