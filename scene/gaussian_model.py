@@ -62,13 +62,11 @@ class GaussianModel:
                 self.obj_list.append(obj_model)
 
         if self.use_camera_pose_correction:
-            # self.pose_correction_trans = torch.nn.Parameter(torch.zeros(self.num_cameras, 3).float().cuda()).requires_grad_(True)
-            # self.pose_correction_rots = torch.nn.Parameter(torch.tensor([[1, 0, 0, 0]]).repeat(self.num_cameras, 1).float().cuda()).requires_grad_(True)
             self.pose_correction = PoseCorrection(self.num_cameras)
         else:
             self.pose_correction = None
 
-    def __init__(self, sh_degree : int, metadata: dict, num_cameras: int, num_classes: int=1, use_camera_pose_correction: bool=False):
+    def __init__(self, sh_degree : int, metadata: dict, num_cameras: int, num_classes: int=0, use_camera_pose_correction: bool=False):
         self.num_classes = num_classes
         self.use_camera_pose_correction = use_camera_pose_correction
         self.active_sh_degree = 0
@@ -201,32 +199,6 @@ class GaussianModel:
     def get_bg_scaling(self):
         return self.scaling_activation(self._scaling)
 
-    # def correct_gaussian_xyz(self, camera_idx, xyz: torch.Tensor):
-    #     # xyz: [N, 3]
-    #     try:
-    #         pose_correction_trans = self.pose_correction_trans[camera_idx]
-    #         pose_correction_rot = self.pose_correction_rots[camera_idx]
-    #     except Exception as e:
-    #         print('==== correct_gaussian_xyz exception, camera_idx:', camera_idx, ', len of self.pose_correction_trans:', len(self.pose_correction_trans), ', len of self.pose_correction_rots:', len(self.pose_correction_rots))
-    #     pose_correction_rot = torch.nn.functional.normalize(pose_correction_rot.unsqueeze(0), dim=-1)
-    #     pose_correction_rot = quaternion_to_matrix(pose_correction_rot).squeeze(0)
-    #     pose_correction_matrix = torch.cat([pose_correction_rot, pose_correction_trans[:, None]], dim=-1)
-    #     padding = torch.tensor([[0, 0, 0, 1]]).float().cuda()
-    #     pose_correction_matrix = torch.cat([pose_correction_matrix, padding], dim=0)
-    #     xyz = torch.cat([xyz, torch.ones_like(xyz[..., :1])], dim=-1)
-    #     xyz = xyz @ pose_correction_matrix.T
-    #     xyz = xyz[:, :3]
-    #     return xyz
-    #
-    # def correct_gaussian_rotation(self, camera_idx, rotation: torch.Tensor):
-    #     # rotation: [N, 4]
-    #     try:
-    #         pose_correction_rot = self.pose_correction_rots[camera_idx]
-    #     except Exception as e:
-    #         print('==== correct_gaussian_xyz exception, camera_idx:', camera_idx, ', len of pose_correction_rots:', len(self.pose_correction_rots))
-    #     pose_correction_rot = torch.nn.functional.normalize(pose_correction_rot.unsqueeze(0), dim=-1)
-    #     rotation = quaternion_raw_multiply(pose_correction_rot, rotation)
-    #     return rotation
 
     @property
     def get_rotation(self):
@@ -250,8 +222,6 @@ class GaussianModel:
 
             rotations.append(point_rotations_in_world)
         rotations = torch.cat(rotations, dim=0)
-        #if self.use_camera_pose_correction:
-        #    rotations = self.pose_correction.correct_gaussian_rotation(self.current_camera_idx, rotations)
         return rotations
 
     @property
@@ -277,8 +247,6 @@ class GaussianModel:
             xyz_in_world = torch.einsum('bij, bj -> bi', obj_rotation_in_world, point_xyzs_in_obj) + obj_transform_in_world
             xyzs.append(xyz_in_world)
         xyzs = torch.cat(xyzs, dim=0)
-        #if self.use_camera_pose_correction:
-        #    xyzs = self.pose_correction.correct_gaussian_xyz(self.current_camera_idx, xyzs)
         return xyzs
     
     @property
@@ -493,16 +461,16 @@ class GaussianModel:
                                                     lr_delay_mult=training_args.position_lr_delay_mult,
                                                     max_steps=training_args.position_lr_max_steps)
         self.exposure_scheduler_args = get_expon_lr_func(training_args.exposure_lr_init, training_args.exposure_lr_final, lr_delay_steps=training_args.exposure_lr_delay_steps, lr_delay_mult=training_args.exposure_lr_delay_mult, max_steps=training_args.iterations)
-        self.pose_correction_scheduler_args = get_expon_lr_func(
-            # warmup_steps=0,
-            lr_init=5e-6,
-            lr_final=1e-6,
-            max_steps=training_args.iterations,
-        )
         for obj_model in self.obj_list:
             obj_model.training_setup(training_args)
 
         if self.pose_correction is not None:
+            self.pose_correction_scheduler_args = get_expon_lr_func(
+                    # warmup_steps=0,
+                    lr_init=5e-6,
+                    lr_final=1e-6,
+                    max_steps=training_args.iterations,
+                )
             self.pose_correction.training_setup(training_args.iterations)
        
     def load_ply_file(self, path, degree):
@@ -667,10 +635,6 @@ class GaussianModel:
             if param_group["name"] == "xyz":
                 lr = self.xyz_scheduler_args(iteration)
                 param_group['lr'] = lr
-                # return lr
-            # elif param_group["name"] == "pose_correction_trans" or param_group["name"] == "pose_correction_rots":
-            #     lr = self.pose_correction_scheduler_args(iteration)
-            #     param_group['lr'] = lr
 
         for obj_model in self.obj_list:
             obj_model.update_learning_rate(iteration)
