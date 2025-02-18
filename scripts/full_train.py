@@ -148,7 +148,7 @@ if __name__ == '__main__':
         "python", "-u train_single.py",
         "--sh_degree", str(args.sh_degree),
         f"--iterations {args.chunks_iterations}",
-        f"--save_iterations {" ".join([str(i) for i in args.save_iterations])}",
+        f"--save_iterations {' '.join([str(i) for i in args.save_iterations])}",
         f"-i {images_dir}", 
         f"-d {depths_dir}",
         f"--scaffold_file {output_dir}/scaffold/point_cloud/iteration_{args.course_iterations}",
