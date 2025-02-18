@@ -162,20 +162,21 @@ if __name__ == '__main__':
         extended_corner_min = box_center - acceptable_radius * extent
         extended_corner_max = box_center + acceptable_radius * extent
 
-        for cam_idx, key in enumerate(images_metas):
-            # if not valid_cam[cam_idx]:
-            image_points3d =  images_points3d[key]
-            n_pts = (np.all(image_points3d < corner_max_for_pts, axis=-1) * np.all(image_points3d > corner_min_for_pts, axis=-1)).sum() if len(image_points3d) > 0 else 0
+        #TODO: 这个会导致有些场景被过滤掉很多camera
+        #for cam_idx, key in enumerate(images_metas):
+        #    # if not valid_cam[cam_idx]:
+        #    image_points3d =  images_points3d[key]
+        #    n_pts = (np.all(image_points3d < corner_max_for_pts, axis=-1) * np.all(image_points3d > corner_min_for_pts, axis=-1)).sum() if len(image_points3d) > 0 else 0
 
-            # If within chunk
-            if np.all(cam_centers[cam_idx] < corner_max) and np.all(cam_centers[cam_idx] > corner_min):
-                valid_cam[cam_idx] = n_pts > 50
-            # If within 2x of the chunk
-            elif np.all(cam_centers[cam_idx] < extended_corner_max) and np.all(cam_centers[cam_idx] > extended_corner_min):
-                valid_cam[cam_idx] = n_pts > 50 and random.uniform(0, 1) > 0.5
-            # All distances
-            if (not valid_cam[cam_idx]) and n_pts > 10 and args.add_far_cams:
-                valid_cam[cam_idx] = random.uniform(0, 0.5) < (float(n_pts) / len(image_points3d))
+        #    # If within chunk
+        #    if np.all(cam_centers[cam_idx] < corner_max) and np.all(cam_centers[cam_idx] > corner_min):
+        #        valid_cam[cam_idx] = n_pts > 50
+        #    # If within 2x of the chunk
+        #    elif np.all(cam_centers[cam_idx] < extended_corner_max) and np.all(cam_centers[cam_idx] > extended_corner_min):
+        #        valid_cam[cam_idx] = n_pts > 50 and random.uniform(0, 1) > 0.5
+        #    # All distances
+        #    if (not valid_cam[cam_idx]) and n_pts > 10 and args.add_far_cams:
+        #        valid_cam[cam_idx] = random.uniform(0, 0.5) < (float(n_pts) / len(image_points3d))
             
         print(f"{valid_cam.sum()} valid cameras after visibility-base selection")
         if args.lapla_thresh > 0:

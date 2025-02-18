@@ -62,7 +62,7 @@ class GaussianModelActor():
         self.model_name = model_name
 
         # semantic
-        self.num_classes = 1 # TODO
+        self.num_classes = 0 # TODO
         # self.semantic_mode = cfg_model.get('semantic_mode', 'logits')
         # assert self.semantic_mode in ['logits', 'probabilities']
         self.semantic_mode = 'logits'
