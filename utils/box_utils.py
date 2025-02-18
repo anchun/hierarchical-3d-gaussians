@@ -1,4 +1,5 @@
 import numpy as np
+import cv2
 
 
 def bbox_to_corner3d(bbox):

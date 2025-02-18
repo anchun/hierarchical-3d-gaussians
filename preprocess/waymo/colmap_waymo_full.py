@@ -10,8 +10,7 @@ sys.path.append(os.getcwd())
 import json
 
 from scipy.spatial.transform import Rotation as R
-from lib.config import cfg
-from utils.waymo_utils import load_camera_info
+from waymo_utils import load_camera_info
 from scene.colmap_loader import read_extrinsics_binary, qvec2rotmat
 
 image_filename_to_cam = lambda x: int(x.split('/')[0].split('_')[1]) # cam_{cam_id}/{frame}.png
@@ -30,14 +29,14 @@ def run_colmap_waymo(input_dir, output_dir, result):
     unique_cams = sorted(list(set(result['cams'])))
     print('cameras: ', unique_cams)
     for unqiue_cam in unique_cams:
-        train_images_dir = os.path.join(colmap_dir, 'train_imgs', f'cam_{unqiue_cam}')
+        train_images_dir = os.path.join(colmap_dir, 'images', f'cam_{unqiue_cam}')
         test_images_dir = os.path.join(colmap_dir, 'test_imgs', f'cam_{unqiue_cam}')
         mask_images_dir = os.path.join(colmap_dir, 'mask', f'cam_{unqiue_cam}')
         os.makedirs(train_images_dir, exist_ok=True)
         os.makedirs(test_images_dir, exist_ok=True)
         os.makedirs(mask_images_dir, exist_ok=True)
     
-    train_images_dir = os.path.join(colmap_dir, 'train_imgs')
+    train_images_dir = os.path.join(colmap_dir, 'images')
     test_images_dir = os.path.join(colmap_dir, 'test_imgs')
     mask_images_dir = os.path.join(colmap_dir, 'mask')
     
@@ -118,7 +117,7 @@ def run_colmap_waymo(input_dir, output_dir, result):
     f_id_name = open(path_idname, 'r')
     f_id_name_lines= f_id_name.readlines()
 
-    model_dir = f'{colmap_dir}/created/sparse/0'
+    model_dir = f'{colmap_dir}/created/sparse'
     if not os.path.exists(model_dir):
         os.makedirs(model_dir)
 
@@ -202,7 +201,7 @@ def run_colmap_waymo(input_dir, output_dir, result):
     cam_rigid["ref_camera_id"] = ref_camera_id
     rigid_cam_list = []
 
-    _, extrinsics, _, _ = load_camera_info(cfg.source_path)
+    _, extrinsics, _, _ = load_camera_info(input_dir)
     for cam_id in unique_cams:
         rigid_cam = dict()
         rigid_cam["camera_id"] = cam_id
@@ -229,7 +228,7 @@ def run_colmap_waymo(input_dir, output_dir, result):
     os.system(f'colmap exhaustive_matcher \
             --database_path {colmap_dir}/database.db')
 
-    triangulated_dir = os.path.join(colmap_dir, 'sparse/0')
+    triangulated_dir = os.path.join(colmap_dir, 'sparse')
     os.makedirs(triangulated_dir, exist_ok=True)
     os.system(f'colmap point_triangulator \
         --database_path {colmap_dir}/database.db \
@@ -261,9 +260,9 @@ def run_colmap_waymo(input_dir, output_dir, result):
                 --BundleAdjustment.refine_principal_point 0 \
                 --BundleAdjustment.refine_extra_params 0')
 
-    os.system(f'rm -rf {train_images_dir}')
-    os.system(f'rm -rf {test_images_dir}')  
-    os.system(f'rm -rf {mask_images_dir}')
+    #os.system(f'rm -rf {train_images_dir}')
+    #os.system(f'rm -rf {test_images_dir}')  
+    #os.system(f'rm -rf {mask_images_dir}')
     
 if __name__ == '__main__':
     run_colmap_waymo(result=None)
