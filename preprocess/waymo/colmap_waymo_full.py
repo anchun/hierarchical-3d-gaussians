@@ -50,6 +50,7 @@ def run_colmap_waymo(input_dir, output_dir, result):
     c2w_dict = dict()
     train_image_filenames = []
     mask_image_filenames = []
+    result['new_image_filenames'] = []
     for i, image_filename in enumerate(image_filenames):
         frame_idx = frames_idx[i]
         basename = os.path.basename(image_filename)
@@ -57,6 +58,7 @@ def run_colmap_waymo(input_dir, output_dir, result):
         c2w_dict[new_image_filename] = c2ws[i]
         mask_image_filenames.append(os.path.join(input_dir, 'dynamic_mask', basename))
         train_image_filenames.append(image_filename)
+        result['new_image_filenames'].append(new_image_filename)
 
     # copy images
     for i, image_filename in enumerate(train_image_filenames):

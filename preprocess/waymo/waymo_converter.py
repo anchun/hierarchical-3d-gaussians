@@ -14,6 +14,7 @@ from simple_waymo_open_dataset_reader import dataset_pb2, label_pb2
 from simple_waymo_open_dataset_reader import utils
 from waymo_utils import generate_dataparser_outputs
 from utils.box_utils import bbox_to_corner3d, get_bound_2d_mask
+import joblib
 
 
 # castrack_path = '/nas/home/yanyunzhi/waymo/castrack/seq_infos/val/result.json'
@@ -596,11 +597,17 @@ if __name__ == '__main__':
     # main()
     raw_dir = r'/home/sim-sensor/src/hierarchical-3d-gaussians/data/notr/raw'
     output_dir = r'/home/sim-sensor/src/hierarchical-3d-gaussians/data/notr/processed/notr_026'
-    #parse_seq_rawdata(
-    #    process_list=['pose', 'calib', 'image', 'track', 'dynamic_mask'], # 'lidar'
-    #    root_dir=raw_dir,
-    #    seq_name='segment-12374656037744638388_1412_711_1432_711_with_camera_labels',
-    #    seq_save_dir=output_dir,
-    #    track_file=output_dir + '/object_infos.txt',
-    #)
-    generate_dataparser_outputs(output_dir,build_pointcloud=False)
+
+    # 第一步，把原始waymo转换为notr格式
+    parse_seq_rawdata(
+        process_list=['pose', 'calib', 'image', 'track', 'dynamic_mask'], # 'lidar'
+        root_dir=raw_dir,
+        seq_name='segment-12374656037744638388_1412_711_1432_711_with_camera_labels',
+        seq_save_dir=output_dir,
+        track_file=output_dir + '/object_infos.txt',
+    )
+
+    # 第二步，把notr格式转换成colmap格式，需要调用colmap，并收集场景信息
+    scene_infos = generate_dataparser_outputs(output_dir,build_pointcloud=False)
+
+    joblib.dump(scene_infos, os.path.join(output_dir, 'scene_meta.bin'))
