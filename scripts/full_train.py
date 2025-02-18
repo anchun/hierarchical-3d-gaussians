@@ -224,6 +224,7 @@ if __name__ == '__main__':
                 try:
                     subprocess.run(
                         train_chunk_args + " -s "+ source_chunk + 
+                        " --project_dir " + args.project_dir +  
                         " --model_path " + trained_chunk +
                         " --bounds_file "+ source_chunk,
                         shell=True, check=True

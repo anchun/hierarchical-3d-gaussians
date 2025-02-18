@@ -47,6 +47,7 @@ class ParamGroup:
 class ModelParams(ParamGroup): 
     def __init__(self, parser, sentinel=False):
         self.sh_degree = 3
+        self._project_dir = ""
         self._source_path = ""
         self._model_path = ""
         self._exp_name = ""
