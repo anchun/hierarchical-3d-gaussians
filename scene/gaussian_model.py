@@ -60,7 +60,7 @@ class GaussianModel:
                 valid_indices = np.argmax(condition, axis=1)
                 valid_rows = obj_tracklets[np.arange(obj_tracklets.shape[0]), valid_indices]
                 has_valid = np.any(condition, axis=1)
-                obj_tracklet = np.full((arr.shape[0], arr.shape[2]), -1)
+                obj_tracklet = np.full((obj_tracklets.shape[0], obj_tracklets.shape[2]), -1)
                 obj_tracklet[has_valid] = valid_rows[has_valid]
 
                 obj_info = self.metadata['obj_info'][object_id]
