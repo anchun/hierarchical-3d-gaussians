@@ -367,7 +367,7 @@ def readNOTRSceneInfo(project_dir, path, images, masks, depths, eval, train_test
         'ixts': ndarray(num_frames*num_cameras, 3,3)，相机内参，camera按0，1，2，3。。。对应各相机
         'poses': ndarray(num_frames*num_cameras, 4,4)，ego_poses，camera按0，1，2，3。。。对应各相机
         'c2ws: ndarray(num_frames*num_cameras, 4,4)，poses @ exts
-        'obj_tracklets': ndarray(num_frames, max_obj, 8)，第二维为obj_id, 第三维依次为：obj_id,x,y,z,qw,qx,qy,qz（相对主车）
+        'obj_tracklets': ndarray(num_frames, max_obj, 8)，第二维为表示所有帧中出现最多动态物的动态物数量, 第三维依次为：obj_id,x,y,z,qw,qx,qy,qz（相对主车）
         'obj_info': dict，key为obj_id，value为obj_meta
                 obj_meta:{
                     'track_id'：int obj_id
