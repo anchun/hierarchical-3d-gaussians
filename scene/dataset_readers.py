@@ -24,6 +24,7 @@ from utils.sh_utils import SH2RGB
 from scene.gaussian_model import BasicPointCloud
 import torch
 import joblib
+from tqdm import tqdm
 
 
 class CameraInfo(NamedTuple):
@@ -149,7 +150,7 @@ def readNOTRCameras(cam_intrinsics, scene_meta, ego_poses, depths_params, images
     poses = scene_meta['poses']
     c2ws = scene_meta['c2ws']
     image_filenames = scene_meta['new_image_filenames']
-    cams_timestamps = output['cams_timestamps']
+    cams_timestamps = scene_meta['cams_timestamps']
     for i in tqdm(range(len(exts))):
         sys.stdout.write('\r')
         sys.stdout.write("Reading camera {}/{}".format(i+1, len(exts)))
@@ -402,6 +403,7 @@ def readNOTRSceneInfo(project_dir, path, images, masks, depths, eval, train_test
     depths_params = None
     scene_meta = joblib.load(os.path.join(project_dir, "scene_meta.bin"))
     # num_frames = scene_meta['num_frames']
+    ego_pose_dir = os.path.join(project_dir, 'ego_pose')
     ego_pose_paths = sorted(os.listdir(ego_pose_dir))
     ego_poses = []
     for ego_pose_path in ego_pose_paths:

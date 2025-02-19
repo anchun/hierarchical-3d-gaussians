@@ -116,6 +116,7 @@ if __name__ == '__main__':
                 "-i", images_dir,
                 "--skybox_num", "100000",
                 "--model_path", os.path.join(output_dir, "scaffold"),
+                " --project_dir ", args.project_dir,
                 "--port", str(args.port),
             ])
             if masks_dir != "":

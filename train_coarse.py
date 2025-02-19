@@ -30,7 +30,7 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
     first_iter = 0
     prepare_output_and_logger(dataset)
     if os.path.exists(os.path.join(args.source_path, "sparse")):
-        scene_info = sceneLoadTypeCallbacks["NOTR"](args.source_path, args.images, args.alpha_masks, args.depths, args.eval, args.train_test_exp, None, args.use_npy_depth)
+        scene_info = sceneLoadTypeCallbacks["NOTR"](args.project_dir, args.source_path, args.images, args.alpha_masks, args.depths, args.eval, args.train_test_exp, None, args.use_npy_depth)
     else:
         assert False, "Could not recognize scene type!"
 
