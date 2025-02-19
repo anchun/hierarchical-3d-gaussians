@@ -99,21 +99,9 @@ class GaussianModelActor():
         self.object_id = obj_meta['object_id']
         self.num_frames = num_frames
 
-        all_transforms = np.zeros((num_frames, 3))
-        all_rotations = np.zeros((num_frames, 4))
-        # all_poses = np.zeros((num_frames, 4, 4))
-        for frame_id in obj_meta['all_transforms'].keys():
-            t = np.array(obj_meta['all_transforms'][frame_id])
-            r = np.array(obj_meta['all_rotation_matrixs'][frame_id])
-            all_transforms[int(frame_id)] = t
-            all_rotations[int(frame_id)] = rotmat2qvec(r)
-            # pose = np.concatenate([t, r], axis=1)
-            # pose = np.concatenate([pose, [0,0,0,1]], axis=0)
-            # all_poses[frame_id] = pose
-
         # 第一维是帧数，存所有帧，但每个动态物不一定在每一帧都出现，为冗余存储
-        self.transforms_in_ego = torch.from_numpy(all_transforms).float().cuda()
-        self.rotations_in_ego = torch.from_numpy(all_rotations).float().cuda()
+        self.transforms_in_ego = torch.from_numpy(obj_meta['all_transforms']).float().cuda()
+        self.rotations_in_ego = torch.from_numpy(obj_meta['all_rotation_qvec']).float().cuda()
         # self.pose_in_ego = torch.from_numpy(all_rotation_matrixs).float().cuda()
 
         # fourier spherical harmonics

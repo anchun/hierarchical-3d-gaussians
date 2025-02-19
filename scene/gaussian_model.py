@@ -50,12 +50,18 @@ class GaussianModel:
         # Build object model
         self.obj_list = []
         #self.model_name_id = bidict()
-        if self.metadata is not None and 'dynamic_objects' in self.metadata.keys() and len(self.metadata['dynamic_objects']) > 0:
-            obj_info = self.metadata['dynamic_objects']
-            for object_id, obj_meta in obj_info.items():
-                if obj_meta['start_frame'] == obj_meta['end_frame']:
+        # metadata['obj_tracklets']: ndarray(num_frames, max_obj, 8)
+        if self.metadata is not None and 'obj_tracklets' in self.metadata.keys() and self.metadata['obj_tracklets'].shape[1] > 0:
+            obj_tracklets = self.metadata['obj_tracklets']
+            for object_id in len(range(obj_tracklets.shape[1])):
+                obj_info = self.metadata['obj_info'][object_id]
+                if obj_info['start_frame'] == obj_info['end_frame']:
                     continue
                 model_name = f'obj_{object_id:03d}'
+                obj_meta = obj_info.copy()
+                obj_meta['object_id'] = object_id
+                obj_meta['all_transforms'] = obj_tracklets[:,object_id, 1:4]
+                obj_meta['all_rotation_qvec'] = obj_tracklets[:,object_id, 4:]
                 obj_model = GaussianModelActor(model_name=model_name, obj_meta=obj_meta, num_frames=self.metadata['num_frames'],max_sh_degree=self.max_sh_degree)
                 obj_model.name = obj_model
                 setattr(self, model_name, obj_model)

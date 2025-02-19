@@ -371,8 +371,8 @@ def readNOTRSceneInfo(project_dir, path, images, masks, depths, eval, train_test
         'obj_info': dict，key为obj_id，value为obj_meta
                 obj_meta:{
                     'track_id'：int obj_id
-                    'class': str，见。。。
-                    'class_label': int 见。。。
+                    'class': str，见waymo_utils.py waymo_track2label
+                    'class_label': int 见waymo_utils.py waymo_track2label
                     'width','height','length': float
                     'deformable': bool
                     'start_frame', 'end_frame': int
