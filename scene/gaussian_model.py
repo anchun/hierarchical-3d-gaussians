@@ -50,18 +50,26 @@ class GaussianModel:
         # Build object model
         self.obj_list = []
         #self.model_name_id = bidict()
-        # metadata['obj_tracklets']: ndarray(num_frames, max_obj, 8)
+        # metadata['obj_tracklets']: ndarray(num_frames, max_obj, 8)，其中第三维依次为：obj_id,x,y,z,qw,qx,qy,qz（相对主车）
         if self.metadata is not None and 'obj_tracklets' in self.metadata.keys() and self.metadata['obj_tracklets'].shape[1] > 0:
             obj_tracklets = self.metadata['obj_tracklets']
-            for object_id in len(range(obj_tracklets.shape[1])):
+            # for object_id in dynamic_obj_ids:
+            for object_index in range(obj_tracklets.shape[1]):
+                # obj_id和obj_idx对应关系丢失了，这里从obj_idx数组中查找obj_id
+                # metadata['obj_tracklets']是冗余存储，某帧不出现的对象也会占位置，其所有值（包括obj id）都为-1
+                object_id_list = obj_tracklets[:,object_index,0].astype(int).tolist()
+                if -1 in object_id_list:
+                    object_id_list.remove(-1)
+                object_id = object_id_list[0]
+
                 obj_info = self.metadata['obj_info'][object_id]
                 if obj_info['start_frame'] == obj_info['end_frame']:
                     continue
                 model_name = f'obj_{object_id:03d}'
                 obj_meta = obj_info.copy()
                 obj_meta['object_id'] = object_id
-                obj_meta['all_transforms'] = obj_tracklets[:,object_id, 1:4]
-                obj_meta['all_rotation_qvec'] = obj_tracklets[:,object_id, 4:]
+                obj_meta['all_transforms'] = obj_tracklets[:,object_index, 1:4]
+                obj_meta['all_rotation_qvec'] = obj_tracklets[:,object_index, 4:]
                 obj_model = GaussianModelActor(model_name=model_name, obj_meta=obj_meta, num_frames=self.metadata['num_frames'],max_sh_degree=self.max_sh_degree)
                 obj_model.name = obj_model
                 setattr(self, model_name, obj_model)
