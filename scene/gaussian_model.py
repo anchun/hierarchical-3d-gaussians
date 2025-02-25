@@ -57,6 +57,8 @@ class GaussianModel:
                 model_name = f'obj_{object_id:03d}'
                 obj_meta = obj_info.copy()
                 obj_meta['object_id'] = object_id # 原obj_info中用track_id表示object_id
+                obj_meta['all_obj_transformers'] = self.metadata['all_obj_transformers'][object_id]
+                obj_meta['all_obj_rotation_matrixes'] = self.metadata['all_obj_rotation_matrixes'][object_id]
                 obj_model = GaussianModelActor(model_name=model_name, obj_meta=obj_meta, num_frames=self.metadata['num_frames'],max_sh_degree=self.max_sh_degree)
                 obj_model.name = obj_model
                 setattr(self, model_name, obj_model)

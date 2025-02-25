@@ -120,11 +120,11 @@ if __name__ == '__main__':
         print(f"Error executing colmap matches_importer: {e}")
         sys.exit(1)
 
-    os.makedirs(os.path.join(bundle_adj_chunk, "sparse", "o"))
-    os.makedirs(os.path.join(bundle_adj_chunk, "sparse", "t"))
-    os.makedirs(os.path.join(bundle_adj_chunk, "sparse", "b"))
-    os.makedirs(os.path.join(bundle_adj_chunk, "sparse", "t2"))
-    os.makedirs(os.path.join(bundle_adj_chunk, "sparse", "0"))
+    os.makedirs(os.path.join(bundle_adj_chunk, "sparse", "o"), exist_ok=True)
+    os.makedirs(os.path.join(bundle_adj_chunk, "sparse", "t"), exist_ok=True)
+    os.makedirs(os.path.join(bundle_adj_chunk, "sparse", "b"), exist_ok=True)
+    os.makedirs(os.path.join(bundle_adj_chunk, "sparse", "t2"), exist_ok=True)
+    os.makedirs(os.path.join(bundle_adj_chunk, "sparse", "0"), exist_ok=True)
     
     shutil.copyfile(os.path.join(args.raw_chunk, "sparse", "0", "images.bin"), os.path.join(bundle_adj_chunk, "sparse", "o", "images.bin"))
     shutil.copyfile(os.path.join(args.raw_chunk, "sparse", "0", "cameras.bin"), os.path.join(bundle_adj_chunk, "sparse", "o", "cameras.bin"))
@@ -151,7 +151,7 @@ if __name__ == '__main__':
             "--Mapper.tri_ignore_two_view_tracks", "1",
             "--Mapper.tri_complete_max_reproj_error", "4",
             "--Mapper.tri_continue_max_angle_error", "4",
-            "--Mapper.ba_use_gpu", "1",
+            #"--Mapper.ba_use_gpu", "1",
             ], check=True)
     else:
         colmap_point_triangulator_args = [
@@ -170,7 +170,7 @@ if __name__ == '__main__':
             "--Mapper.tri_ignore_two_view_tracks", "1",
             "--Mapper.tri_complete_max_reproj_error", "4",
             "--Mapper.tri_continue_max_angle_error", "4",
-            "--Mapper.ba_use_gpu", "1",
+            #"--Mapper.ba_use_gpu", "1",
             ]
 
         colmap_bundle_adjuster_args = [

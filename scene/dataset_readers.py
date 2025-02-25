@@ -405,7 +405,7 @@ def readNOTRSceneInfo(project_dir, path, images, masks, depths, eval, train_test
     ## if depth_params_file isnt there AND depths file is here -> throw error
     depths_params = None
     scene_meta = joblib.load(os.path.join(project_dir, "scene_meta.bin"))
-    cam_extrinsics = scene_meta['exts'][:len(cam_intrinsics.keys())]
+    cam_extrinsics = scene_meta['extrinsics'][:len(cam_intrinsics.keys())]
     # num_frames = scene_meta['num_frames']
     ego_pose_dir = os.path.join(project_dir, 'ego_pose')
     ego_pose_paths = sorted(os.listdir(ego_pose_dir))

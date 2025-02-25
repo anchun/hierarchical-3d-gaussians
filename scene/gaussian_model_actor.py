@@ -96,8 +96,8 @@ class GaussianModelActor():
         self.num_frames = num_frames
 
         # 第一维是帧数，存所有帧，但每个动态物不一定在每一帧都出现，为冗余存储
-        self.transforms_in_ego = torch.from_numpy(obj_meta['all_transforms']).float().cuda()
-        self.rotations_in_ego = torch.from_numpy(obj_meta['all_rotation_qvec']).float().cuda()
+        self.transforms_in_ego = torch.from_numpy(obj_meta['all_obj_transformers']).float().cuda()
+        self.rotations_in_ego = torch.from_numpy(obj_meta['all_obj_rotation_matrixes']).float().cuda()
         self.rotations_in_ego = matrix_to_quaternion(self.rotations_in_ego)
         # self.pose_in_ego = torch.from_numpy(all_rotation_matrixs).float().cuda()
 
