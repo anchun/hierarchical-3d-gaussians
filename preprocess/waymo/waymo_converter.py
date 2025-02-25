@@ -5,7 +5,7 @@ import torch
 import numpy as np
 import cv2
 import math
-import imageio
+# import imageio
 import argparse
 import json
 from tqdm import tqdm
@@ -135,7 +135,9 @@ def project_label_to_mask(dim, obj_pose, calibration):
 def parse_seq_rawdata(process_list, root_dir, seq_name, seq_save_dir, track_file, start_idx=None, end_idx=None):
     print(f'Processing sequence {seq_name}...')
     print(f'Saving to {seq_save_dir}')
-    
+    all_obj_transformers = {}
+    all_obj_rotation_matrixes = {}
+    cam_extrinsics = None
     try:
         with open(track_file, 'r') as f:
             castrack_infos = json.load(f)
@@ -208,6 +210,7 @@ def parse_seq_rawdata(process_list, root_dir, seq_name, seq_save_dir, track_file
         for i in range(5):
             np.savetxt(os.path.join(extrinsic_save_dir, f"{str(camera_names[i] - 1)}.txt"), extrinsics[i])
             np.savetxt(os.path.join(intrinsic_save_dir, f"{str(camera_names[i] - 1)}.txt"), intrinsics[i])
+        cam_extrinsics = extrinsics
     
     if 'image' in process_list:
         image_save_dir = os.path.join(seq_save_dir, 'images')
@@ -308,6 +311,12 @@ def parse_seq_rawdata(process_list, root_dir, seq_name, seq_save_dir, track_file
             
             for label in frame.laser_labels:
                 box = label.box
+                speed = np.linalg.norm([label.metadata.speed_x, label.metadata.speed_y])
+
+                # thresholding, use 1.0 m/s to determine whether the pixel is moving
+                # follow EmerNeRF
+                # if speed < 1.:
+                #     continue
                 
                 # build 3D bounding box dimension
                 length, width, height = box.length, box.width, box.height
@@ -329,6 +338,10 @@ def parse_seq_rawdata(process_list, root_dir, seq_name, seq_save_dir, track_file
                 label_id = object_ids[label.id]
                 if label_id not in bbox_visible_dict:
                     bbox_visible_dict[label_id] = dict()
+                if label_id not in all_obj_transformers:
+                    all_obj_transformers[label_id] = np.array([[-1.,-1.,-1.]]*num_frames)
+                if label_id not in all_obj_rotation_matrixes:
+                    all_obj_rotation_matrixes[label_id] = np.array([np.eye(3).astype(np.float64)]*num_frames)
                 bbox_visible_dict[label_id][frame_id] = []
 
                 for camera_name in camera_names_dict.keys():
@@ -367,7 +380,8 @@ def parse_seq_rawdata(process_list, root_dir, seq_name, seq_save_dir, track_file
                 meta = label.metadata
                 speed = np.linalg.norm([meta.speed_x, meta.speed_y])  
                 lines_info = f"{frame_id} {label_id} {obj_class} {alpha} {height} {width} {length} {tx} {ty} {tz} {heading} {speed} \n"
-                
+                all_obj_transformers[label_id][frame_id] = np.array([tx,ty,tz])
+                all_obj_rotation_matrixes[label_id][frame_id] = rotz_matrix
                 track_infos_file.write(lines_info)
                 
             track_vis_img = np.concatenate([
@@ -377,7 +391,7 @@ def parse_seq_rawdata(process_list, root_dir, seq_name, seq_save_dir, track_file
             track_vis_imgs.append(track_vis_img)
         
         # save track visualization        
-        imageio.mimwrite(os.path.join(track_dir, "track_vis.mp4"), track_vis_imgs, fps=24)
+        # imageio.mimwrite(os.path.join(track_dir, "track_vis.mp4"), track_vis_imgs, fps=24)
         
         # save bbox visibility
         bbox_visible_path = os.path.join(track_dir, "track_camera_vis.json")
@@ -482,7 +496,7 @@ def parse_seq_rawdata(process_list, root_dir, seq_name, seq_save_dir, track_file
                 track_vis_imgs.append(track_vis_img)
             
             # save track visualization
-            imageio.mimwrite(os.path.join(track_dir, "track_vis_castrack.mp4"), track_vis_imgs, fps=24)
+            # imageio.mimwrite(os.path.join(track_dir, "track_vis_castrack.mp4"), track_vis_imgs, fps=24)
 
             # save bbox visibility
             bbox_visible_path = os.path.join(track_dir, "track_camera_vis_castrack.json")
@@ -560,6 +574,8 @@ def parse_seq_rawdata(process_list, root_dir, seq_name, seq_save_dir, track_file
 
         print("Saving dynamic mask done...")
 
+    return cam_extrinsics, all_obj_transformers, all_obj_rotation_matrixes
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--process_list', type=str, nargs='+', default=['pose', 'calib', 'image', 'lidar', 'track', 'dynamic_mask'])
@@ -595,11 +611,14 @@ def main():
     
 if __name__ == '__main__':
     # main()
-    raw_dir = r'/home/sim-sensor/src/hierarchical-3d-gaussians/data/notr/raw'
-    output_dir = r'/home/sim-sensor/src/hierarchical-3d-gaussians/data/notr/processed/notr_026'
-
+    raw_dir = r'/home/anchun/src/hierarchical-3d-gaussians/data/notr/raw'
+    output_dir = r'/home/anchun/src/hierarchical-3d-gaussians/data/notr/processed/notr_026'
+    # raw_dir = r'E:\data\hierarchical_3dgs\notr/raw'
+    # output_dir = r'E:\data\hierarchical_3dgs\notr/processed/notr_026'
+    # raw_dir = r'D:\Projects\51sim-ai\EmerNeRF\data\waymo\raw'
+    # output_dir = r'D:\Projects\51sim-ai\EmerNeRF\data\waymo\processed/notr_026'
     # 第一步，把原始waymo转换为notr格式
-    parse_seq_rawdata(
+    cam_extrinsics, all_obj_transformers, all_obj_rotation_matrixes = parse_seq_rawdata(
         process_list=['pose', 'calib', 'image', 'track', 'dynamic_mask'], # 'lidar'
         root_dir=raw_dir,
         seq_name='segment-12374656037744638388_1412_711_1432_711_with_camera_labels',
@@ -609,5 +628,33 @@ if __name__ == '__main__':
 
     # 第二步，把notr格式转换成colmap格式，需要调用colmap，并收集场景信息
     scene_infos = generate_dataparser_outputs(output_dir,build_pointcloud=False)
+    scene_infos['extrinsics'] = cam_extrinsics
+    del scene_infos['exts']
+    del scene_infos['ixts']
+    del scene_infos['poses']
+    del scene_infos['c2ws']
+    del scene_infos['obj_tracklets']
+    del scene_infos['frames']
+    del scene_infos['cams']
+    del scene_infos['frames_idx']
+    del scene_infos['obj_bounds']
+    for static_obj_id in scene_infos['static_object_ids']:
+        if static_obj_id in all_obj_transformers.keys():
+            del all_obj_transformers[static_obj_id]
+        if static_obj_id in all_obj_rotation_matrixes.keys():
+            del all_obj_rotation_matrixes[static_obj_id]
+        if static_obj_id in scene_infos['obj_info'].keys():
+            del scene_infos['obj_info'][static_obj_id]
+    for obj_id in scene_infos['obj_info'].keys():
+        start_frame = scene_infos['obj_info'][obj_id]['start_frame']
+        end_frame = scene_infos['obj_info'][obj_id]['end_frame']
+        if obj_id in all_obj_transformers.keys():
+            all_obj_transformers[obj_id][0:start_frame] = np.array([-1.,-1.,-1.])
+            all_obj_transformers[obj_id][end_frame+1:] = np.array([-1., -1., -1.])
+        if obj_id in all_obj_rotation_matrixes.keys():
+            all_obj_rotation_matrixes[obj_id][0:start_frame] = np.eye(3).astype(np.float64)
+            all_obj_rotation_matrixes[obj_id][end_frame+1:] = np.eye(3).astype(np.float64)
+    scene_infos['all_obj_transformers'] = all_obj_transformers
+    scene_infos['all_obj_rotation_matrixes'] = all_obj_rotation_matrixes
 
     joblib.dump(scene_infos, os.path.join(output_dir, 'scene_meta.bin'))

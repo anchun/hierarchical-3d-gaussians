@@ -49,28 +49,14 @@ class GaussianModel:
 
         # Build object model
         self.obj_list = []
-        #self.model_name_id = bidict()
-        # metadata['obj_tracklets']: ndarray(num_frames, max_obj, 8)，其中第三维依次为：obj_id,x,y,z,qw,qx,qy,qz（相对主车）
-        if self.metadata is not None and 'obj_tracklets' in self.metadata.keys() and self.metadata['obj_tracklets'].shape[1] > 0:
-            obj_tracklets = self.metadata['obj_tracklets']
-            for object_id in self.metadata['obj_info'].keys():
-                # metadata['obj_tracklets']的第二维为表示所有帧中出现最多动态物的动态物数量
-                # 这里把每个动态物对应的所有帧取出来的x,y,z,qw,qx,qy,qz取出来，如果在某些帧该对象不可见，则填充为-1，保证帧数（即第一维）总是等于总帧数
-                condition = obj_tracklets[:, :, 0].astype(int) == object_id
-                valid_indices = np.argmax(condition, axis=1)
-                valid_rows = obj_tracklets[np.arange(obj_tracklets.shape[0]), valid_indices]
-                has_valid = np.any(condition, axis=1)
-                obj_tracklet = np.full((obj_tracklets.shape[0], obj_tracklets.shape[2]), -1)
-                obj_tracklet[has_valid] = valid_rows[has_valid]
-
-                obj_info = self.metadata['obj_info'][object_id]
+        if self.metadata is not None and 'obj_info' in self.metadata.keys() and len(self.metadata['obj_info'].keys()) > 0:
+            obj_infos = self.metadata['obj_info']
+            for object_id, obj_info in obj_infos.items():
                 if obj_info['start_frame'] == obj_info['end_frame']:
                     continue
                 model_name = f'obj_{object_id:03d}'
                 obj_meta = obj_info.copy()
-                obj_meta['object_id'] = object_id
-                obj_meta['all_transforms'] = obj_tracklet[:, 1:4]
-                obj_meta['all_rotation_qvec'] = obj_tracklet[:, 4:]
+                obj_meta['object_id'] = object_id # 原obj_info中用track_id表示object_id
                 obj_model = GaussianModelActor(model_name=model_name, obj_meta=obj_meta, num_frames=self.metadata['num_frames'],max_sh_degree=self.max_sh_degree)
                 obj_model.name = obj_model
                 setattr(self, model_name, obj_model)
@@ -174,8 +160,6 @@ class GaussianModel:
         # 2. transform object pose to world coordinate
         ego_rotation_in_world = matrix_to_quaternion(ego_pose_in_world[:3, :3].unsqueeze(0)).squeeze(0)
         obj_rotation_in_world = quaternion_raw_multiply(ego_rotation_in_world, obj_rotation_in_ego)
-        # self.obj_transform_in_world_of_current_frame = ego_pose_in_world[:3, :3] @ obj_transform_in_ego + ego_pose_in_world[:3, 3]
-        # self.obj_transform_in_world_of_current_frame = torch.einsum('ij,nj->ni', ego_pose_in_world[:3, :3], obj_transform_in_ego) + ego_pose_in_world[:3, 3]
         ego_rotation_in_world = ego_pose_in_world[:3, :3].expand(obj_transform_in_ego.shape[0], -1, -1)
         ego_transform_in_world = ego_pose_in_world[:3, 3].unsqueeze(0).expand(obj_transform_in_ego.shape[0], -1, -1)
         self.obj_transform_in_world_of_current_frame = torch.bmm(ego_rotation_in_world, obj_transform_in_ego.unsqueeze(-1)).transpose(1, 2) + ego_transform_in_world

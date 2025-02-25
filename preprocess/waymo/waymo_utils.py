@@ -82,6 +82,7 @@ def make_obj_pose(ego_pose, box_info):
 def get_obj_pose_tracking(datadir, selected_frames, ego_poses, cameras=[0, 1, 2, 3, 4]):
     tracklets_ls = []    
     objects_info = {}
+    static_object_ids = set()
 
     tracklet_path = os.path.join(datadir, 'track/track_info.txt')
     tracklet_camera_vis_path = os.path.join(datadir, 'track/track_camera_vis.json')
@@ -170,8 +171,10 @@ def get_obj_pose_tracking(datadir, selected_frames, ego_poses, cameras=[0, 1, 2,
                 visible_objects_pose_vehicle[all_obj_idx] = -1.
                 visible_objects_pose_world[all_obj_idx] = -1.
                 objects_info.pop(key)
+                static_object_ids.add(key)
         else:
             objects_info.pop(key)
+            static_object_ids.add(key)
             
     # Clip max_num_obj
     mask = visible_objects_ids >= 0
@@ -235,7 +238,7 @@ def get_obj_pose_tracking(datadir, selected_frames, ego_poses, cameras=[0, 1, 2,
     )
     
     
-    return objects_tracklets_world, objects_tracklets_vehicle, objects_info
+    return objects_tracklets_world, objects_tracklets_vehicle, objects_info, static_object_ids
 
 def padding_tracklets(tracklets, frame_timestamps, min_timestamp, max_timestamp):
     # tracklets: [num_frames, max_obj, ....]
@@ -331,7 +334,7 @@ def generate_dataparser_outputs(
     frames_timestamps = np.array(frames_timestamps) - timestamp_offset
     min_timestamp, max_timestamp = min(cams_timestamps.min(), frames_timestamps.min()), max(cams_timestamps.max(), frames_timestamps.max())
  
-    _, object_tracklets_vehicle, object_info = get_obj_pose_tracking(
+    _, object_tracklets_vehicle, object_info, static_object_ids = get_obj_pose_tracking(
         datadir, 
         selected_frames, 
         ego_frame_poses,
@@ -353,7 +356,8 @@ def generate_dataparser_outputs(
     result['poses'] = poses
     result['c2ws'] = c2ws
     result['obj_tracklets'] = object_tracklets_vehicle
-    result['obj_info'] = object_info 
+    result['obj_info'] = object_info
+    result['static_object_ids'] = static_object_ids
     result['frames'] = frames
     result['cams'] = cams
     result['frames_idx'] = frames_idx

@@ -2,12 +2,8 @@ import torch
 import torch.nn as nn
 import numpy as np
 import os
-#from lib.config import cfg
-#from lib.utils.general_utils import quaternion_to_matrix, inverse_sigmoid, matrix_to_quaternion, get_expon_lr_func, quaternion_raw_multiply
-#from lib.utils.sh_utils import RGB2SH, IDFT
-#from lib.datasets.base_readers import fetchPly
 from utils.sh_utils import RGB2SH
-from utils.general_utils import inverse_sigmoid, get_expon_lr_func, quaternion_to_matrix, quaternion_raw_multiply
+from utils.general_utils import inverse_sigmoid, get_expon_lr_func, quaternion_to_matrix, quaternion_raw_multiply, matrix_to_quaternion
 from plyfile import PlyData, PlyElement
 from simple_knn._C import distCUDA2
 from preprocess.read_write_model import rotmat2qvec
@@ -102,6 +98,7 @@ class GaussianModelActor():
         # 第一维是帧数，存所有帧，但每个动态物不一定在每一帧都出现，为冗余存储
         self.transforms_in_ego = torch.from_numpy(obj_meta['all_transforms']).float().cuda()
         self.rotations_in_ego = torch.from_numpy(obj_meta['all_rotation_qvec']).float().cuda()
+        self.rotations_in_ego = matrix_to_quaternion(self.rotations_in_ego)
         # self.pose_in_ego = torch.from_numpy(all_rotation_matrixs).float().cuda()
 
         # fourier spherical harmonics
