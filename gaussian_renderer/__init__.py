@@ -119,7 +119,7 @@ def render(
     else:
         features = torch.zeros(means3D.shape[0], 0).float().cuda() # TODO
 
-    rendered_image, radii, depth_image, rendered_feature = rasterizer(
+    rendered_image, radii, depth_image = rasterizer(
         means3D = means3D,
         means2D = means2D,
         shs = shs,
@@ -128,7 +128,7 @@ def render(
         scales = scales,
         rotations = rotations,
         cov3D_precomp = cov3D_precomp,
-        semantics = features,
+        #semantics = features,
     )
     
     #rendered_feature_dict = dict()
@@ -482,7 +482,7 @@ def render_coarse(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.T
         features = torch.zeros(means3D.shape[0], 0).float().cuda() # TODO
 
 
-    rendered_image, radii, _, rendered_feature = rasterizer(
+    rendered_image, radii, _ = rasterizer(
         means3D = means3D,
         means2D = means2D,
         shs = shs,
@@ -491,7 +491,7 @@ def render_coarse(viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.T
         scales = scales,
         rotations = rotations,
         cov3D_precomp = cov3D_precomp,
-        semantics = features,
+        #semantics = features,
         )
     
     #rendered_feature_dict = dict()

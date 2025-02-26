@@ -89,9 +89,9 @@ class GaussianModelActor():
         self.obj_class_label = obj_meta['class_label']
         self.deformable = obj_meta['deformable']
         self.start_frame = obj_meta['start_frame']
-        # self.start_timestamp = obj_meta['start_timestamp']
+        self.start_timestamp = obj_meta['start_timestamp']
         self.end_frame = obj_meta['end_frame']
-        # self.end_timestamp = obj_meta['end_timestamp']
+        self.end_timestamp = obj_meta['end_timestamp']
         self.object_id = obj_meta['object_id']
         self.num_frames = num_frames
 

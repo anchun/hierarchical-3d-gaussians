@@ -611,10 +611,10 @@ def main():
     
 if __name__ == '__main__':
     # main()
-    raw_dir = r'/home/anchun/src/hierarchical-3d-gaussians/data/notr/raw'
-    output_dir = r'/home/anchun/src/hierarchical-3d-gaussians/data/notr/processed/notr_026'
-    # raw_dir = r'E:\data\hierarchical_3dgs\notr/raw'
-    # output_dir = r'E:\data\hierarchical_3dgs\notr/processed/notr_026'
+    #raw_dir = r'/home/anchun/src/hierarchical-3d-gaussians/data/notr/raw'
+    #output_dir = r'/home/anchun/src/hierarchical-3d-gaussians/data/notr/processed/notr_026'
+    raw_dir = r'E:\data\hierarchical_3dgs\notr/raw'
+    output_dir = r'E:\data\hierarchical_3dgs\notr/processed/notr_026'
     # raw_dir = r'D:\Projects\51sim-ai\EmerNeRF\data\waymo\raw'
     # output_dir = r'D:\Projects\51sim-ai\EmerNeRF\data\waymo\processed/notr_026'
     # 第一步，把原始waymo转换为notr格式
@@ -633,7 +633,7 @@ if __name__ == '__main__':
     del scene_infos['ixts']
     del scene_infos['poses']
     del scene_infos['c2ws']
-    del scene_infos['obj_tracklets']
+    # del scene_infos['obj_tracklets']
     del scene_infos['frames']
     del scene_infos['cams']
     del scene_infos['frames_idx']

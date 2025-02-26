@@ -25,6 +25,7 @@ from gaussian_hierarchy._C import load_hierarchy, write_hierarchy
 from scene.OurAdam import Adam
 from scene.cameras import Camera
 from scene.gaussian_model_actor import GaussianModelActor
+from scene.actor_pose import ActorPose
 import time
 from scene.camera_pose_corretion import PoseCorrection
 
@@ -63,6 +64,12 @@ class GaussianModel:
                 obj_model.name = obj_model
                 setattr(self, model_name, obj_model)
                 self.obj_list.append(obj_model)
+            obj_tracklets = self.metadata['obj_tracklets']
+            tracklet_timestamps = self.metadata['tracklet_timestamps']
+            camera_timestamps = self.metadata['cams_timestamps']
+            self.actor_pose = ActorPose(obj_tracklets, tracklet_timestamps, camera_timestamps, obj_infos)
+        else:
+            self.actor_pose = None
 
         if self.use_camera_pose_correction:
             self.pose_correction = PoseCorrection(self.num_cameras)
@@ -136,37 +143,49 @@ class GaussianModel:
         self.optimizer.load_state_dict(opt_dict)
 
     def parse_camera(self, camera: Camera):
+        self.viewpoint_camera = camera
         self.current_frame = camera.metadata['frame_id']
         self.current_camera_idx = camera.cam_idx
-        # 以下计算所有动态对象的坐标变换，为了效率，以张量形式一起计算所有对象
-        frame_id = camera.metadata['frame_id']
-        ego_pose_in_world = camera.ego_pose
-        obj_transforms_in_ego = []
-        obj_delta_transforms_in_ego = []
-        obj_rotations_in_ego = []
-        obj_delta_rotations_in_ego = []
+
+        self.visible_objects = []
+        self.num_gaussians = 0
+        timestamp = camera.metadata['timestamp']
         for obj_model in self.obj_list:
-            obj_transforms_in_ego.append(obj_model.transforms_in_ego[frame_id])
-            obj_delta_transforms_in_ego.append(obj_model.delta_transforms_in_ego[frame_id])
-            obj_rotations_in_ego.append(obj_model.rotations_in_ego[frame_id])
-            obj_delta_rotations_in_ego.append(obj_model.delta_rotations_in_ego[frame_id])
-        obj_transforms_in_ego = torch.stack(obj_transforms_in_ego, dim=0)
-        obj_delta_transforms_in_ego = torch.stack(obj_delta_transforms_in_ego, dim=0)
-        obj_rotations_in_ego = torch.stack(obj_rotations_in_ego, dim=0)
-        obj_delta_rotations_in_ego = torch.stack(obj_delta_rotations_in_ego, dim=0)
+            start_timestamp, end_timestamp = obj_model.start_timestamp, obj_model.end_timestamp
+            if timestamp >= start_timestamp and timestamp <= end_timestamp:
+                self.visible_objects.append(obj_model)
+                num_gaussians_obj = obj_model.get_xyz.shape[0]
+                self.num_gaussians += num_gaussians_obj
 
-        # 1. fix object pose with learnable delta (in ego coordinate)
-        obj_transform_in_ego = obj_transforms_in_ego + obj_delta_transforms_in_ego
-        obj_rotation_in_ego = quaternion_raw_multiply(obj_rotations_in_ego, obj_delta_rotations_in_ego)
-
-        # 2. transform object pose to world coordinate
-        ego_rotation_in_world = matrix_to_quaternion(ego_pose_in_world[:3, :3].unsqueeze(0)).squeeze(0)
-        obj_rotation_in_world = quaternion_raw_multiply(ego_rotation_in_world, obj_rotation_in_ego)
-        ego_rotation_in_world = ego_pose_in_world[:3, :3].expand(obj_transform_in_ego.shape[0], -1, -1)
-        ego_transform_in_world = ego_pose_in_world[:3, 3].unsqueeze(0).expand(obj_transform_in_ego.shape[0], -1, -1)
-        self.obj_transform_in_world_of_current_frame = torch.bmm(ego_rotation_in_world, obj_transform_in_ego.unsqueeze(-1)).transpose(1, 2) + ego_transform_in_world
-        self.obj_transform_in_world_of_current_frame = self.obj_transform_in_world_of_current_frame.squeeze(1)
-        self.obj_rotation_in_world_of_current_frame = quaternion_to_matrix(obj_rotation_in_world)
+        # # 以下计算所有动态对象的坐标变换，为了效率，以张量形式一起计算所有对象
+        # frame_id = camera.metadata['frame_id']
+        # ego_pose_in_world = camera.ego_pose
+        # obj_transforms_in_ego = []
+        # obj_delta_transforms_in_ego = []
+        # obj_rotations_in_ego = []
+        # obj_delta_rotations_in_ego = []
+        # for obj_model in self.obj_list:
+        #     obj_transforms_in_ego.append(obj_model.transforms_in_ego[frame_id])
+        #     obj_delta_transforms_in_ego.append(obj_model.delta_transforms_in_ego[frame_id])
+        #     obj_rotations_in_ego.append(obj_model.rotations_in_ego[frame_id])
+        #     obj_delta_rotations_in_ego.append(obj_model.delta_rotations_in_ego[frame_id])
+        # obj_transforms_in_ego = torch.stack(obj_transforms_in_ego, dim=0)
+        # obj_delta_transforms_in_ego = torch.stack(obj_delta_transforms_in_ego, dim=0)
+        # obj_rotations_in_ego = torch.stack(obj_rotations_in_ego, dim=0)
+        # obj_delta_rotations_in_ego = torch.stack(obj_delta_rotations_in_ego, dim=0)
+        #
+        # # 1. fix object pose with learnable delta (in ego coordinate)
+        # obj_transform_in_ego = obj_transforms_in_ego + obj_delta_transforms_in_ego
+        # obj_rotation_in_ego = quaternion_raw_multiply(obj_rotations_in_ego, obj_delta_rotations_in_ego)
+        #
+        # # 2. transform object pose to world coordinate
+        # ego_rotation_in_world = matrix_to_quaternion(ego_pose_in_world[:3, :3].unsqueeze(0)).squeeze(0)
+        # obj_rotation_in_world = quaternion_raw_multiply(ego_rotation_in_world, obj_rotation_in_ego)
+        # ego_rotation_in_world = ego_pose_in_world[:3, :3].expand(obj_transform_in_ego.shape[0], -1, -1)
+        # ego_transform_in_world = ego_pose_in_world[:3, 3].unsqueeze(0).expand(obj_transform_in_ego.shape[0], -1, -1)
+        # self.obj_transform_in_world_of_current_frame = torch.bmm(ego_rotation_in_world, obj_transform_in_ego.unsqueeze(-1)).transpose(1, 2) + ego_transform_in_world
+        # self.obj_transform_in_world_of_current_frame = self.obj_transform_in_world_of_current_frame.squeeze(1)
+        # self.obj_rotation_in_world_of_current_frame = quaternion_to_matrix(obj_rotation_in_world)
 
         # set index range
         self.graph_gaussian_range = dict()
@@ -175,18 +194,49 @@ class GaussianModel:
         self.graph_gaussian_range['background'] = [idx, idx+num_gaussians_bkgd-1]
         idx += num_gaussians_bkgd
 
-        for obj_model in self.obj_list:
+        for obj_model in self.visible_objects:
             obj_name = obj_model.name
             num_gaussians_obj = obj_model.get_xyz.shape[0]
             self.graph_gaussian_range[obj_name] = [idx, idx+num_gaussians_obj-1]
             idx += num_gaussians_obj
+
+        if len(self.visible_objects) > 0:
+            self.obj_rots = []
+            self.obj_trans = []
+            for obj_model in self.visible_objects:
+                object_id = obj_model.object_id
+                obj_rot = self.actor_pose.get_tracking_rotation(object_id, self.viewpoint_camera)
+                obj_trans = self.actor_pose.get_tracking_translation(object_id, self.viewpoint_camera)
+                ego_pose = self.viewpoint_camera.ego_pose
+                ego_pose_rot = matrix_to_quaternion(ego_pose[:3, :3].unsqueeze(0)).squeeze(0)
+                obj_rot = quaternion_raw_multiply(ego_pose_rot.unsqueeze(0), obj_rot.unsqueeze(0)).squeeze(0)
+                obj_trans = ego_pose[:3, :3] @ obj_trans + ego_pose[:3, 3]
+                
+                obj_rot = obj_rot.expand(obj_model.get_xyz.shape[0], -1)
+                obj_trans = obj_trans.unsqueeze(0).expand(obj_model.get_xyz.shape[0], -1)
+                
+                self.obj_rots.append(obj_rot)
+                self.obj_trans.append(obj_trans)
+            
+            self.obj_rots = torch.cat(self.obj_rots, dim=0)
+            self.obj_trans = torch.cat(self.obj_trans, dim=0)  
+            
+            # self.flip_mask = []
+            # for obj_name in self.visible_objects:
+            #     obj_model: GaussianModelActor = getattr(self, obj_name)
+            #     if obj_model.deformable or self.flip_prob == 0:
+            #         flip_mask = torch.zeros_like(obj_model.get_xyz[:, 0]).bool()
+            #     else:
+            #         flip_mask = torch.rand_like(obj_model.get_xyz[:, 0]) < self.flip_prob
+            #     self.flip_mask.append(flip_mask)
+            # self.flip_mask = torch.cat(self.flip_mask, dim=0)
 
     @property
     def get_scaling(self):
         scalings = []
         scaling_bkgd = self.scaling_activation(self._scaling)
         scalings.append(scaling_bkgd)
-        for obj_model in self.obj_list:
+        for obj_model in self.visible_objects:
             scaling = obj_model.get_scaling
             scalings.append(scaling)
         scalings = torch.cat(scalings, dim=0)
@@ -208,20 +258,32 @@ class GaussianModel:
         if self.use_camera_pose_correction:
             rotations_bkgd = self.pose_correction.correct_gaussian_rotation(self.current_camera_idx, rotations_bkgd)
         rotations.append(rotations_bkgd)
-        if len(self.obj_list) > 0:
-            point_rotations_in_obj = []
-            obj_rotation_in_world = []
-            for i, obj_model in enumerate(self.obj_list):
-                rotations_obj = obj_model.get_rotation
-                point_rotations_in_obj.append(rotations_obj)
-                obj_rotation_in_world.append(self.obj_rotation_in_world_of_current_frame[i].expand(rotations_obj.shape[0], -1, -1))
-            point_rotations_in_obj = torch.cat(point_rotations_in_obj, dim=0)
-            point_rotations_in_obj = point_rotations_in_obj.clone()
-            obj_rotation_in_world = torch.cat(obj_rotation_in_world, dim=0)
-            point_rotations_in_world = quaternion_raw_multiply(matrix_to_quaternion(obj_rotation_in_world), point_rotations_in_obj)
-            point_rotations_in_world = torch.nn.functional.normalize(point_rotations_in_world)
 
-            rotations.append(point_rotations_in_world)
+        if len(self.visible_objects) > 0:
+            # point_rotations_in_obj = []
+            # obj_rotation_in_world = []
+            # for i, obj_model in enumerate(self.obj_list):
+            #     rotations_obj = obj_model.get_rotation
+            #     point_rotations_in_obj.append(rotations_obj)
+            #     obj_rotation_in_world.append(self.obj_rotation_in_world_of_current_frame[i].expand(rotations_obj.shape[0], -1, -1))
+            # point_rotations_in_obj = torch.cat(point_rotations_in_obj, dim=0)
+            # point_rotations_in_obj = point_rotations_in_obj.clone()
+            # obj_rotation_in_world = torch.cat(obj_rotation_in_world, dim=0)
+            # point_rotations_in_world = quaternion_raw_multiply(matrix_to_quaternion(obj_rotation_in_world), point_rotations_in_obj)
+            # point_rotations_in_world = torch.nn.functional.normalize(point_rotations_in_world)
+            # rotations.append(point_rotations_in_world)
+            rotations_local = []
+            for i, obj_model in enumerate(self.visible_objects):
+                rotation_local = obj_model.get_rotation
+                rotations_local.append(rotation_local)
+
+            rotations_local = torch.cat(rotations_local, dim=0)
+            rotations_local = rotations_local.clone()
+            # rotations_local[self.flip_mask] = quaternion_raw_multiply(self.flip_matrix, rotations_local[self.flip_mask])
+            rotations_obj = quaternion_raw_multiply(self.obj_rots, rotations_local)
+            rotations_obj = torch.nn.functional.normalize(rotations_obj)
+            rotations.append(rotations_obj)
+
         rotations = torch.cat(rotations, dim=0)
         return rotations
 
@@ -232,21 +294,33 @@ class GaussianModel:
             xyzs.append(self.pose_correction.correct_gaussian_xyz(self.current_camera_idx, self._xyz))
         else:
             xyzs.append(self._xyz)
-        if len(self.obj_list) > 0:
-            point_xyzs_in_obj = []
-            obj_transform_in_world = []
-            obj_rotation_in_world = []
-            for i, obj_model in enumerate(self.obj_list):
-                xyzs_obj = obj_model.get_xyz
-                point_xyzs_in_obj.append(xyzs_obj)
-                obj_transform_in_world.append(self.obj_transform_in_world_of_current_frame[i].expand(xyzs_obj.shape[0], -1))
-                obj_rotation_in_world.append(self.obj_rotation_in_world_of_current_frame[i].expand(xyzs_obj.shape[0], -1, -1))
-            point_xyzs_in_obj = torch.cat(point_xyzs_in_obj, dim=0)
-            point_xyzs_in_obj = point_xyzs_in_obj.clone()
-            obj_transform_in_world = torch.cat(obj_transform_in_world, dim=0)
-            obj_rotation_in_world = torch.cat(obj_rotation_in_world, dim=0)
-            xyz_in_world = torch.einsum('bij, bj -> bi', obj_rotation_in_world, point_xyzs_in_obj) + obj_transform_in_world
-            xyzs.append(xyz_in_world)
+        if len(self.visible_objects) > 0:
+            # point_xyzs_in_obj = []
+            # obj_transform_in_world = []
+            # obj_rotation_in_world = []
+            # for i, obj_model in enumerate(self.obj_list):
+            #     xyzs_obj = obj_model.get_xyz
+            #     point_xyzs_in_obj.append(xyzs_obj)
+            #     obj_transform_in_world.append(self.obj_transform_in_world_of_current_frame[i].expand(xyzs_obj.shape[0], -1))
+            #     obj_rotation_in_world.append(self.obj_rotation_in_world_of_current_frame[i].expand(xyzs_obj.shape[0], -1, -1))
+            # point_xyzs_in_obj = torch.cat(point_xyzs_in_obj, dim=0)
+            # point_xyzs_in_obj = point_xyzs_in_obj.clone()
+            # obj_transform_in_world = torch.cat(obj_transform_in_world, dim=0)
+            # obj_rotation_in_world = torch.cat(obj_rotation_in_world, dim=0)
+            # xyz_in_world = torch.einsum('bij, bj -> bi', obj_rotation_in_world, point_xyzs_in_obj) + obj_transform_in_world
+            # xyzs.append(xyz_in_world)
+            xyzs_local = []
+
+            for i, obj_model in enumerate(self.visible_objects):
+                xyz_local = obj_model.get_xyz
+                xyzs_local.append(xyz_local)
+
+            xyzs_local = torch.cat(xyzs_local, dim=0)
+            xyzs_local = xyzs_local.clone()
+            # xyzs_local[self.flip_mask, self.flip_axis] *= -1
+            obj_rots = quaternion_to_matrix(self.obj_rots)
+            xyzs_obj = torch.einsum('bij, bj -> bi', obj_rots, xyzs_local) + self.obj_trans
+            xyzs.append(xyzs_obj)
         xyzs = torch.cat(xyzs, dim=0)
         return xyzs
     
@@ -258,7 +332,7 @@ class GaussianModel:
 
         features = []
         features.append(features_bkgd)
-        for obj_model in self.obj_list:
+        for obj_model in self.visible_objects:
             feature_obj = obj_model.get_features_fourier(self.current_frame)
             features.append(feature_obj)
         features = torch.cat(features, dim=0)
@@ -272,7 +346,7 @@ class GaussianModel:
         else: # 'probabilities':
             semantic_bkgd = torch.nn.functional.softmax(self._semantic, dim=1)
         semantics.append(semantic_bkgd)
-        for obj_model in self.obj_list:
+        for obj_model in self.visible_objects:
             semantic = obj_model.get_semantic
             semantics.append(semantic)
         semantics = torch.cat(semantics, dim=0)
@@ -283,7 +357,7 @@ class GaussianModel:
         opacity_bkgd = self.opacity_activation(self._opacity)
         opacities = []
         opacities.append(opacity_bkgd)
-        for obj_model in self.obj_list:
+        for obj_model in self.visible_objects:
             opacity = obj_model.get_opacity
             opacities.append(opacity)
         opacities = torch.cat(opacities, dim=0)
@@ -465,6 +539,9 @@ class GaussianModel:
         for obj_model in self.obj_list:
             obj_model.training_setup(training_args)
 
+        if self.actor_pose is not None:
+            self.actor_pose.training_setup()
+
         if self.pose_correction is not None:
             self.pose_correction_scheduler_args = get_expon_lr_func(
                     # warmup_steps=0,
@@ -640,6 +717,9 @@ class GaussianModel:
         for obj_model in self.obj_list:
             obj_model.update_learning_rate(iteration)
 
+        if self.actor_pose is not None:
+            self.actor_pose.update_learning_rate(iteration)
+
         if self.pose_correction is not None:
             self.pose_correction.update_learning_rate(iteration)
 
@@ -652,6 +732,9 @@ class GaussianModel:
 
         for obj_model in self.obj_list:
             obj_model.update_optimizer()
+
+        if self.actor_pose is not None:
+            self.actor_pose.update_optimizer()
 
         if self.pose_correction is not None:
             self.pose_correction.update_optimizer()
@@ -951,7 +1034,7 @@ class GaussianModel:
         if len(visibility_model) > 0:
             max_radii2D_model = radii[start:end+1]
             self.max_radii2D[visibility_model] = torch.max(self.max_radii2D[visibility_model], max_radii2D_model[visibility_model])
-        for obj_model in self.obj_list:
+        for obj_model in self.visible_objects:
             start, end = self.graph_gaussian_range[obj_model.name]
             visibility_model = update_filter[(update_filter >= start) & (update_filter <= end)] - start
             if len(visibility_model) == 0:
@@ -971,7 +1054,7 @@ class GaussianModel:
             self.xyz_gradient_accum[visibility_model] = torch.max(torch.norm(viewspace_point_tensor_grad_model[visibility_model,:2], dim=-1, keepdim=True), self.xyz_gradient_accum[visibility_model])
             self.denom[visibility_model] += 1
 
-        for obj_model in self.obj_list:
+        for obj_model in self.visible_objects:
             start, end = self.graph_gaussian_range[obj_model.name]
             visibility_model = update_filter[(update_filter >= start) & (update_filter <= end)] - start
             if len(visibility_model) == 0:

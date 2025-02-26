@@ -150,8 +150,9 @@ def name_2_frame_id(name):
     return int(frame_id)
 
 
-def readNOTRCameras(cam_pose_info_in_colmap, cam_extrinsics, cam_intrinsics, depths_params, images_folder, masks_folder, depths_folder, test_cam_names_list, use_npy_depth=False):
+def readNOTRCameras(cam_pose_info_in_colmap, cam_extrinsics, cam_intrinsics, cams_timestamps, depths_params, images_folder, masks_folder, depths_folder, test_cam_names_list, use_npy_depth=False):
     cam_infos = []
+    num_cams = len(cam_intrinsics)
     for idx, image_id in enumerate(cam_pose_info_in_colmap):
         sys.stdout.write('\r')
         # the exact output you're looking for:
@@ -160,9 +161,10 @@ def readNOTRCameras(cam_pose_info_in_colmap, cam_extrinsics, cam_intrinsics, dep
         raw_cam_define = cam_pose_info_in_colmap[image_id]
         camera_id = raw_cam_define.camera_id
         metadata = {}
-        metadata['frame_id'] = name_2_frame_id(raw_cam_define.name)
+        frame_id = name_2_frame_id(raw_cam_define.name)
+        metadata['frame_id'] = frame_id
         metadata['extrinsic'] = cam_extrinsics[camera_id]
-        # metadata['timestamp'] = cams_timestamps[i]
+        metadata['timestamp'] = cams_timestamps[camera_id][frame_id]
         intr = cam_intrinsics[camera_id]
         height = intr.height
         width = intr.width
@@ -406,7 +408,11 @@ def readNOTRSceneInfo(project_dir, path, images, masks, depths, eval, train_test
     depths_params = None
     scene_meta = joblib.load(os.path.join(project_dir, "scene_meta.bin"))
     cam_extrinsics = scene_meta['extrinsics'][:len(cam_intrinsics.keys())]
-    # num_frames = scene_meta['num_frames']
+
+    num_frames = scene_meta['num_frames']
+    num_cameras = len(cam_intrinsics)
+    cams_timestamps = scene_meta['cams_timestamps'].reshape(num_frames, num_cameras).T
+    scene_meta['cams_timestamps'] = cams_timestamps
     ego_pose_dir = os.path.join(project_dir, 'ego_pose')
     ego_pose_paths = sorted(os.listdir(ego_pose_dir))
     ego_poses = []
@@ -458,6 +464,7 @@ def readNOTRSceneInfo(project_dir, path, images, masks, depths, eval, train_test
         cam_pose_info_in_colmap=cam_pose_info_in_colmap,
         cam_extrinsics=cam_extrinsics,
         cam_intrinsics=cam_intrinsics,
+        cams_timestamps=cams_timestamps,
         depths_params=depths_params,
         images_folder=os.path.join(path, reading_dir), masks_folder=masks_reading_dir,
         depths_folder=os.path.join(path, depths) if depths != "" else "", test_cam_names_list=[],
