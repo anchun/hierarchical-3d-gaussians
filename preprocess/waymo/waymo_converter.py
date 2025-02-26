@@ -621,7 +621,8 @@ if __name__ == '__main__':
     cam_extrinsics, all_obj_transformers, all_obj_rotation_matrixes = parse_seq_rawdata(
         process_list=['pose', 'calib', 'image', 'track', 'dynamic_mask'], # 'lidar'
         root_dir=raw_dir,
-        seq_name='segment-12374656037744638388_1412_711_1432_711_with_camera_labels',
+        seq_name='segment-12374656037744638388_1412_711_1432_711_with_camera_labels', # 026
+        #seq_name='segment-10061305430875486848_1080_000_1100_000_with_camera_labels',
         seq_save_dir=output_dir,
         track_file=output_dir + '/object_infos.txt',
     )
@@ -631,7 +632,7 @@ if __name__ == '__main__':
     scene_infos['extrinsics'] = cam_extrinsics
     del scene_infos['exts']
     del scene_infos['ixts']
-    del scene_infos['poses']
+    #del scene_infos['poses']
     del scene_infos['c2ws']
     # del scene_infos['obj_tracklets']
     del scene_infos['frames']

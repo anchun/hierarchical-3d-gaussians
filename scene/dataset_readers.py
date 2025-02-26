@@ -150,7 +150,7 @@ def name_2_frame_id(name):
     return int(frame_id)
 
 
-def readNOTRCameras(cam_pose_info_in_colmap, cam_extrinsics, cam_intrinsics, cams_timestamps, depths_params, images_folder, masks_folder, depths_folder, test_cam_names_list, use_npy_depth=False):
+def readNOTRCameras(ego_poses, cam_pose_info_in_colmap, cam_extrinsics, cam_intrinsics, cams_timestamps, depths_params, images_folder, masks_folder, depths_folder, test_cam_names_list, use_npy_depth=False):
     cam_infos = []
     num_cams = len(cam_intrinsics)
     for idx, image_id in enumerate(cam_pose_info_in_colmap):
@@ -172,12 +172,13 @@ def readNOTRCameras(cam_pose_info_in_colmap, cam_extrinsics, cam_intrinsics, cam
         uid = intr.id
         R = np.transpose(qvec2rotmat(raw_cam_define.qvec))
         T = np.array(raw_cam_define.tvec)
-        RT = np.zeros((4, 4))
-        RT[:3, :3] = R.T  # R 转置得到 RT 的左上角 3x3 子矩阵
-        RT[:3, 3] = T  # T 作为 RT 的前三行第四列元素
-        RT[3, :] = [0, 0, 0, 1]  # 补充 RT 的第四行
-        c2w = np.linalg.inv(RT)
-        metadata['ego_pose'] = c2w.dot(np.linalg.inv(metadata['extrinsic']))
+        #RT = np.zeros((4, 4))
+        #RT[:3, :3] = R.T  # R 转置得到 RT 的左上角 3x3 子矩阵
+        #RT[:3, 3] = T  # T 作为 RT 的前三行第四列元素
+        #RT[3, :] = [0, 0, 0, 1]  # 补充 RT 的第四行
+        #c2w = np.linalg.inv(RT)
+        metadata['ego_pose'] = ego_poses[frame_id*num_cams + camera_id] #c2w.dot(np.linalg.inv(metadata['extrinsic']))
+        #metadata['ego_pose'] = c2w.dot(np.linalg.inv(metadata['extrinsic']))
 
         if intr.model=="SIMPLE_PINHOLE":
             focal_length_x = intr.params[0]
@@ -413,13 +414,7 @@ def readNOTRSceneInfo(project_dir, path, images, masks, depths, eval, train_test
     num_cameras = len(cam_intrinsics)
     cams_timestamps = scene_meta['cams_timestamps'].reshape(num_frames, num_cameras).T
     scene_meta['cams_timestamps'] = cams_timestamps
-    ego_pose_dir = os.path.join(project_dir, 'ego_pose')
-    ego_pose_paths = sorted(os.listdir(ego_pose_dir))
-    ego_poses = []
-    for ego_pose_path in ego_pose_paths:
-        if '_' not in ego_pose_path:
-            ego_frame_pose = np.loadtxt(os.path.join(ego_pose_dir, ego_pose_path))
-            ego_poses.append(ego_frame_pose)
+    ego_poses = scene_meta['poses']
     if depths != "" and not use_npy_depth:
         try:
             with open(depth_params_file, "r") as f:
@@ -461,6 +456,7 @@ def readNOTRSceneInfo(project_dir, path, images, masks, depths, eval, train_test
     masks_reading_dir = masks if masks == "" else os.path.join(path, masks)
 
     cam_infos_unsorted = readNOTRCameras(
+        ego_poses=ego_poses,
         cam_pose_info_in_colmap=cam_pose_info_in_colmap,
         cam_extrinsics=cam_extrinsics,
         cam_intrinsics=cam_intrinsics,

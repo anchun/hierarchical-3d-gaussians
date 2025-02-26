@@ -58,8 +58,6 @@ class GaussianModel:
                 model_name = f'obj_{object_id:03d}'
                 obj_meta = obj_info.copy()
                 obj_meta['object_id'] = object_id # 原obj_info中用track_id表示object_id
-                obj_meta['all_obj_transformers'] = self.metadata['all_obj_transformers'][object_id]
-                obj_meta['all_obj_rotation_matrixes'] = self.metadata['all_obj_rotation_matrixes'][object_id]
                 obj_model = GaussianModelActor(model_name=model_name, obj_meta=obj_meta, num_frames=self.metadata['num_frames'],max_sh_degree=self.max_sh_degree)
                 obj_model.name = obj_model
                 setattr(self, model_name, obj_model)
@@ -105,8 +103,6 @@ class GaussianModel:
 
         self.metadata = metadata
         self.setup_functions()
-        self.obj_transform_in_world_of_current_frame = None # 渲染时用于计算动态对象的xyz & rotation
-        self.obj_rotation_in_world_of_current_frame = None # 渲染时用于计算动态对象的xyz & rotation
 
     def capture(self):
         return (
@@ -157,37 +153,6 @@ class GaussianModel:
                 num_gaussians_obj = obj_model.get_xyz.shape[0]
                 self.num_gaussians += num_gaussians_obj
 
-        # # 以下计算所有动态对象的坐标变换，为了效率，以张量形式一起计算所有对象
-        # frame_id = camera.metadata['frame_id']
-        # ego_pose_in_world = camera.ego_pose
-        # obj_transforms_in_ego = []
-        # obj_delta_transforms_in_ego = []
-        # obj_rotations_in_ego = []
-        # obj_delta_rotations_in_ego = []
-        # for obj_model in self.obj_list:
-        #     obj_transforms_in_ego.append(obj_model.transforms_in_ego[frame_id])
-        #     obj_delta_transforms_in_ego.append(obj_model.delta_transforms_in_ego[frame_id])
-        #     obj_rotations_in_ego.append(obj_model.rotations_in_ego[frame_id])
-        #     obj_delta_rotations_in_ego.append(obj_model.delta_rotations_in_ego[frame_id])
-        # obj_transforms_in_ego = torch.stack(obj_transforms_in_ego, dim=0)
-        # obj_delta_transforms_in_ego = torch.stack(obj_delta_transforms_in_ego, dim=0)
-        # obj_rotations_in_ego = torch.stack(obj_rotations_in_ego, dim=0)
-        # obj_delta_rotations_in_ego = torch.stack(obj_delta_rotations_in_ego, dim=0)
-        #
-        # # 1. fix object pose with learnable delta (in ego coordinate)
-        # obj_transform_in_ego = obj_transforms_in_ego + obj_delta_transforms_in_ego
-        # obj_rotation_in_ego = quaternion_raw_multiply(obj_rotations_in_ego, obj_delta_rotations_in_ego)
-        #
-        # # 2. transform object pose to world coordinate
-        # ego_rotation_in_world = matrix_to_quaternion(ego_pose_in_world[:3, :3].unsqueeze(0)).squeeze(0)
-        # obj_rotation_in_world = quaternion_raw_multiply(ego_rotation_in_world, obj_rotation_in_ego)
-        # ego_rotation_in_world = ego_pose_in_world[:3, :3].expand(obj_transform_in_ego.shape[0], -1, -1)
-        # ego_transform_in_world = ego_pose_in_world[:3, 3].unsqueeze(0).expand(obj_transform_in_ego.shape[0], -1, -1)
-        # self.obj_transform_in_world_of_current_frame = torch.bmm(ego_rotation_in_world, obj_transform_in_ego.unsqueeze(-1)).transpose(1, 2) + ego_transform_in_world
-        # self.obj_transform_in_world_of_current_frame = self.obj_transform_in_world_of_current_frame.squeeze(1)
-        # self.obj_rotation_in_world_of_current_frame = quaternion_to_matrix(obj_rotation_in_world)
-
-        # set index range
         self.graph_gaussian_range = dict()
         idx = 0
         num_gaussians_bkgd = self._xyz.shape[0]
@@ -260,18 +225,6 @@ class GaussianModel:
         rotations.append(rotations_bkgd)
 
         if len(self.visible_objects) > 0:
-            # point_rotations_in_obj = []
-            # obj_rotation_in_world = []
-            # for i, obj_model in enumerate(self.obj_list):
-            #     rotations_obj = obj_model.get_rotation
-            #     point_rotations_in_obj.append(rotations_obj)
-            #     obj_rotation_in_world.append(self.obj_rotation_in_world_of_current_frame[i].expand(rotations_obj.shape[0], -1, -1))
-            # point_rotations_in_obj = torch.cat(point_rotations_in_obj, dim=0)
-            # point_rotations_in_obj = point_rotations_in_obj.clone()
-            # obj_rotation_in_world = torch.cat(obj_rotation_in_world, dim=0)
-            # point_rotations_in_world = quaternion_raw_multiply(matrix_to_quaternion(obj_rotation_in_world), point_rotations_in_obj)
-            # point_rotations_in_world = torch.nn.functional.normalize(point_rotations_in_world)
-            # rotations.append(point_rotations_in_world)
             rotations_local = []
             for i, obj_model in enumerate(self.visible_objects):
                 rotation_local = obj_model.get_rotation
@@ -295,20 +248,6 @@ class GaussianModel:
         else:
             xyzs.append(self._xyz)
         if len(self.visible_objects) > 0:
-            # point_xyzs_in_obj = []
-            # obj_transform_in_world = []
-            # obj_rotation_in_world = []
-            # for i, obj_model in enumerate(self.obj_list):
-            #     xyzs_obj = obj_model.get_xyz
-            #     point_xyzs_in_obj.append(xyzs_obj)
-            #     obj_transform_in_world.append(self.obj_transform_in_world_of_current_frame[i].expand(xyzs_obj.shape[0], -1))
-            #     obj_rotation_in_world.append(self.obj_rotation_in_world_of_current_frame[i].expand(xyzs_obj.shape[0], -1, -1))
-            # point_xyzs_in_obj = torch.cat(point_xyzs_in_obj, dim=0)
-            # point_xyzs_in_obj = point_xyzs_in_obj.clone()
-            # obj_transform_in_world = torch.cat(obj_transform_in_world, dim=0)
-            # obj_rotation_in_world = torch.cat(obj_rotation_in_world, dim=0)
-            # xyz_in_world = torch.einsum('bij, bj -> bi', obj_rotation_in_world, point_xyzs_in_obj) + obj_transform_in_world
-            # xyzs.append(xyz_in_world)
             xyzs_local = []
 
             for i, obj_model in enumerate(self.visible_objects):
@@ -816,11 +755,12 @@ class GaussianModel:
         # PlyData([el]).write(path)
         plydata_list.append(el)
 
-        #for obj_model in self.obj_list:
-        #    plydata = obj_model.make_ply()
-        #    model_name = obj_model.get_modelname
-        #    plydata = PlyElement.describe(plydata, f'vertex_{model_name}')
-        #    plydata_list.append(plydata)
+        for obj_model in self.obj_list:
+           # plydata = obj_model.make_ply()
+           # model_name = obj_model.get_modelname
+           # plydata = PlyElement.describe(plydata, f'vertex_{model_name}')
+           # plydata_list.append(plydata)
+            print('==== obj', obj_model.get_modelname,'points:', len(obj_model._xyz.size(0)))
 
         PlyData(plydata_list).write(path)
 

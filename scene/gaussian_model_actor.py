@@ -95,12 +95,6 @@ class GaussianModelActor():
         self.object_id = obj_meta['object_id']
         self.num_frames = num_frames
 
-        # 第一维是帧数，存所有帧，但每个动态物不一定在每一帧都出现，为冗余存储
-        self.transforms_in_ego = torch.from_numpy(obj_meta['all_obj_transformers']).float().cuda()
-        self.rotations_in_ego = torch.from_numpy(obj_meta['all_obj_rotation_matrixes']).float().cuda()
-        self.rotations_in_ego = matrix_to_quaternion(self.rotations_in_ego)
-        # self.pose_in_ego = torch.from_numpy(all_rotation_matrixs).float().cuda()
-
         # fourier spherical harmonics
         self.fourier_dim = 1 #cfg.model.gaussian.get('fourier_dim', 1)
         self.fourier_scale = 1 #cfg.model.gaussian.get('fourier_scale', 1.)
@@ -125,9 +119,6 @@ class GaussianModelActor():
 
         self.spatial_lr_scale = extent
 
-        # delta trans和rot用于微调对象的位姿，第一维是帧数，存所有帧，但每个动态物不一定在每一帧都出现，为冗余存储
-        self.delta_transforms_in_ego = torch.nn.Parameter(torch.zeros_like(self.transforms_in_ego).float().cuda()).requires_grad_(True)
-        self.delta_rotations_in_ego = torch.nn.Parameter(torch.stack([torch.tensor([1, 0, 0, 0])] * num_frames).float().cuda()).requires_grad_(True)
         self.max_sh_degree = max_sh_degree # TODO 什么用途？
 
     def setup_functions(self):
@@ -456,8 +447,6 @@ class GaussianModelActor():
             {'params': [self._opacity], 'lr': training_args.opacity_lr, "name": "opacity"},
             {'params': [self._scaling], 'lr': training_args.scaling_lr, "name": "scaling"},
             {'params': [self._rotation], 'lr': training_args.rotation_lr, "name": "rotation"},
-            {'params': [self.delta_transforms_in_ego], 'lr': 0.005, "name": "delta_transform"},
-            {'params': [self.delta_rotations_in_ego], 'lr': 0.001, "name": "delta_rotation"},
             {'params': [self._semantic], 'lr': training_args.semantic_lr, "name": "semantic"},
         ]
         
