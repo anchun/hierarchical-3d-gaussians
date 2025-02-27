@@ -181,7 +181,7 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
                         gaussians.add_densification_stats(viewspace_point_tensor, visibility_filter)
 
                         if iteration > opt.densify_from_iter and iteration % opt.densification_interval == 0:
-                            prune_big_points = iteration > opt.opacity_reset_interval
+                            prune_big_points = iteration > opt.opacity_reset_interval and False
                             gaussians.densify_and_prune(opt.densify_grad_threshold, 0.005, scene.cameras_extent, prune_big_points)
                         
                         if iteration % opt.opacity_reset_interval == 0:

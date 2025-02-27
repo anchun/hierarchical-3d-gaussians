@@ -760,7 +760,7 @@ class GaussianModel:
            # model_name = obj_model.get_modelname
            # plydata = PlyElement.describe(plydata, f'vertex_{model_name}')
            # plydata_list.append(plydata)
-            print('==== obj', obj_model.get_modelname,'points:', len(obj_model._xyz.size(0)))
+            print('==== obj', obj_model.get_modelname,'points:', obj_model._xyz.size(0))
 
         PlyData(plydata_list).write(path)
 
@@ -965,8 +965,8 @@ class GaussianModel:
             obj_model.reset_opacity()
         torch.cuda.empty_cache()
 
-        for obj_model in self.obj_list:
-            obj_model.densify_and_prune(max_grad, min_opacity, prune_big_points)
+        # for obj_model in self.obj_list:
+        #     obj_model.densify_and_prune(max_grad, min_opacity, prune_big_points)
 
     def set_max_radii2D(self, radii, update_filter):
         start, end = self.graph_gaussian_range['background']

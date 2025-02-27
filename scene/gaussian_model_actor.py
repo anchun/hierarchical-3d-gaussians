@@ -109,6 +109,7 @@ class GaussianModelActor():
         box_scale=1.5
         extent = max(length*1.5/box_scale, width*1.5/box_scale, height) / 2.
         self.extent = torch.tensor([extent]).float().cuda()   
+        print('==== name', self.model_name, ', box:', self.bbox,', extend:', self.extent)
 
         num_classes = 0 # 1 if cfg.data.get('use_semantic', False) else 0
         self.num_classes_global = 1 # cfg.data.num_classes if cfg.data.get('use_semantic', False) else 0        
@@ -242,7 +243,7 @@ class GaussianModelActor():
             self.random_initialization = True
 
         if self.random_initialization is True:
-            points_dim = 20
+            points_dim = 50
             print(f'Creating random pointcloud for {self.model_name}')
             points_x, points_y, points_z = np.meshgrid(
                 np.linspace(-1., 1., points_dim), np.linspace(-1., 1., points_dim), np.linspace(-1., 1., points_dim),
