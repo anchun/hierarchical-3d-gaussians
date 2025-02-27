@@ -13,12 +13,12 @@ from scipy.spatial.transform import Rotation as R
 from waymo_utils import load_camera_info
 from scene.colmap_loader import read_extrinsics_binary, qvec2rotmat
 
-image_filename_to_cam = lambda x: int(x.split('/')[0].split('_')[1]) # cam_{cam_id}/{frame}.png
+image_filename_to_cam = lambda x: int(x.split('/')[0].split('_')[1]) # cam_{cam_id}/{frame}.jpg
 
 def convert_filename(filename):
-    # {frame}_{cam_id}.png -> cam_{cam_id}/{frame}.png
+    # {frame}_{cam_id}.jpg -> cam_{cam_id}/{frame}.jpg
     frame, cam_id = filename.split('.')[0].split('_')
-    new_filename = f'cam_{cam_id}/{frame}.png'
+    new_filename = f'cam_{cam_id}/{frame}.jpg'
     return new_filename
 
 def run_colmap_waymo(input_dir, output_dir, result):
@@ -72,7 +72,7 @@ def run_colmap_waymo(input_dir, output_dir, result):
         basename = os.path.basename(image_filename)
         mask_images_dir = os.path.join(colmap_dir, 'mask')
         new_image_filename = os.path.join(mask_images_dir, convert_filename(basename))
-        new_mask_filename = f'{new_image_filename}.png'
+        new_mask_filename = f'{new_image_filename}.jpg'
         if not os.path.exists(new_mask_filename):
             shutil.copyfile(image_filename, new_mask_filename)
             mask = cv2.imread(new_mask_filename)

@@ -15,6 +15,7 @@ from simple_waymo_open_dataset_reader import utils
 from waymo_utils import generate_dataparser_outputs
 from utils.box_utils import bbox_to_corner3d, get_bound_2d_mask
 import joblib
+from argparse import ArgumentParser
 
 
 # castrack_path = '/nas/home/yanyunzhi/waymo/castrack/seq_infos/val/result.json'
@@ -132,7 +133,9 @@ def project_label_to_mask(dim, obj_pose, calibration):
     return mask
     
     
-def parse_seq_rawdata(process_list, root_dir, seq_name, seq_save_dir, track_file, start_idx=None, end_idx=None):
+def parse_seq_rawdata(process_list, seq_path, seq_save_dir, track_file, start_idx=None, end_idx=None):
+    file_name_with_ext = os.path.basename(seq_path)
+    seq_name, file_extension = os.path.splitext(file_name_with_ext)
     print(f'Processing sequence {seq_name}...')
     print(f'Saving to {seq_save_dir}')
     all_obj_transformers = {}
@@ -146,7 +149,7 @@ def parse_seq_rawdata(process_list, root_dir, seq_name, seq_save_dir, track_file
 
     os.makedirs(seq_save_dir, exist_ok=True)
     
-    seq_path = os.path.join(root_dir, seq_name+'.tfrecord')
+    # seq_path = os.path.join(root_dir, seq_name+'.tfrecord')
     
     # set start and end timestep
     datafile = WaymoDataFileReader(seq_path)
@@ -222,7 +225,7 @@ def parse_seq_rawdata(process_list, root_dir, seq_name, seq_save_dir, track_file
             for camera_name, camera_name_str in camera_names_dict.items():                    
                 camera = utils.get(frame.images, camera_name)
                 img = utils.decode_image(camera)
-                img_path = os.path.join(image_save_dir, f'{frame_id:06d}_{str(camera.name - 1)}.png')
+                img_path = os.path.join(image_save_dir, f'{frame_id:06d}_{str(camera.name - 1)}.jpg')
                 cv2.imwrite(img_path, cv2.cvtColor(img, cv2.COLOR_RGB2BGR))
 
         print("Processing image data done...")
@@ -569,7 +572,7 @@ def parse_seq_rawdata(process_list, root_dir, seq_name, seq_save_dir, track_file
             
             for camera_name in camera_names_dict.keys():
                 mask = masks[camera_name]
-                mask_path = os.path.join(dynamic_mask_dir, f'{frame_id:06d}_{str(camera_name - 1)}.png')
+                mask_path = os.path.join(dynamic_mask_dir, f'{frame_id:06d}_{str(camera_name - 1)}.jpg')
                 cv2.imwrite(mask_path, (mask * 255).astype(np.uint8))
 
         print("Saving dynamic mask done...")
@@ -611,24 +614,21 @@ def main():
     
 if __name__ == '__main__':
     # main()
-    #raw_dir = r'/home/anchun/src/hierarchical-3d-gaussians/data/notr/raw'
-    #output_dir = r'/home/anchun/src/hierarchical-3d-gaussians/data/notr/processed/notr_026'
-    raw_dir = r'E:\data\hierarchical_3dgs\notr/raw'
-    output_dir = r'E:\data\hierarchical_3dgs\notr/processed/notr_026'
-    # raw_dir = r'D:\Projects\51sim-ai\EmerNeRF\data\waymo\raw'
-    # output_dir = r'D:\Projects\51sim-ai\EmerNeRF\data\waymo\processed/notr_026'
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--tf_record', type=str)
+    parser.add_argument('--output_dir', type=str)
+    args = parser.parse_args()
+
     # 第一步，把原始waymo转换为notr格式
     cam_extrinsics, all_obj_transformers, all_obj_rotation_matrixes = parse_seq_rawdata(
         process_list=['pose', 'calib', 'image', 'track', 'dynamic_mask'], # 'lidar'
-        root_dir=raw_dir,
-        seq_name='segment-12374656037744638388_1412_711_1432_711_with_camera_labels', # 026
-        #seq_name='segment-10061305430875486848_1080_000_1100_000_with_camera_labels',
-        seq_save_dir=output_dir,
-        track_file=output_dir + '/object_infos.txt',
+        seq_path=args.tf_record,
+        seq_save_dir=args.output_dir,
+        track_file=args.output_dir + '/object_infos.txt',
     )
 
     # 第二步，把notr格式转换成colmap格式，需要调用colmap，并收集场景信息
-    scene_infos = generate_dataparser_outputs(output_dir,build_pointcloud=False)
+    scene_infos = generate_dataparser_outputs(args.output_dir,build_pointcloud=False)
     scene_infos['extrinsics'] = cam_extrinsics
     del scene_infos['exts']
     del scene_infos['ixts']
@@ -658,4 +658,4 @@ if __name__ == '__main__':
     scene_infos['all_obj_transformers'] = all_obj_transformers
     scene_infos['all_obj_rotation_matrixes'] = all_obj_rotation_matrixes
 
-    joblib.dump(scene_infos, os.path.join(output_dir, 'scene_meta.bin'))
+    joblib.dump(scene_infos, os.path.join(args.output_dir, 'scene_meta.bin'))
