@@ -55,12 +55,10 @@ class GaussianModel:
             for object_id, obj_info in obj_infos.items():
                 if obj_info['start_frame'] == obj_info['end_frame']:
                     continue
-                model_name = f'obj_{object_id:03d}'
                 obj_meta = obj_info.copy()
                 obj_meta['object_id'] = object_id # 原obj_info中用track_id表示object_id
-                obj_model = GaussianModelActor(model_name=model_name, obj_meta=obj_meta, num_frames=self.metadata['num_frames'],max_sh_degree=self.max_sh_degree)
-                obj_model.name = obj_model
-                setattr(self, model_name, obj_model)
+                obj_model = GaussianModelActor(obj_meta=obj_meta, num_frames=self.metadata['num_frames'],max_sh_degree=self.max_sh_degree,num_classes=self.num_classes)
+                setattr(self, obj_model.get_modelname, obj_model)
                 self.obj_list.append(obj_model)
             obj_tracklets = self.metadata['obj_tracklets']
             tracklet_timestamps = self.metadata['tracklet_timestamps']
@@ -70,11 +68,11 @@ class GaussianModel:
             self.actor_pose = None
 
         if self.use_camera_pose_correction:
-            self.pose_correction = PoseCorrection(self.num_cameras)
+            self.pose_correction = PoseCorrection(self.num_camera_poses)
         else:
             self.pose_correction = None
 
-    def __init__(self, sh_degree : int, metadata: dict, num_cameras: int, num_classes: int=0, use_camera_pose_correction: bool=False):
+    def __init__(self, sh_degree : int, metadata: dict, num_camera_poses: int, num_classes: int=0, use_camera_pose_correction: bool=False):
         self.num_classes = num_classes
         self.use_camera_pose_correction = use_camera_pose_correction
         self.active_sh_degree = 0
@@ -94,7 +92,7 @@ class GaussianModel:
         self.spatial_lr_scale = 0
         self.nodes = None
         self.boxes = None
-        self.num_cameras = num_cameras
+        self.num_camera_poses = num_camera_poses
 
         self.pretrained_exposures = None
 
@@ -160,7 +158,7 @@ class GaussianModel:
         idx += num_gaussians_bkgd
 
         for obj_model in self.visible_objects:
-            obj_name = obj_model.name
+            obj_name = obj_model.get_modelname
             num_gaussians_obj = obj_model.get_xyz.shape[0]
             self.graph_gaussian_range[obj_name] = [idx, idx+num_gaussians_obj-1]
             idx += num_gaussians_obj
@@ -526,8 +524,9 @@ class GaussianModel:
         semantic_names = [p.name for p in plydata.elements[0].properties if p.name.startswith("semantic_")]
         semantic_names = sorted(semantic_names, key = lambda x: int(x.split('_')[-1]))
         semantic = np.zeros((xyz.shape[0], len(semantic_names)))
-        #for idx, attr_name in enumerate(semantic_names):
-        #    semantic[:, idx] = np.asarray(plydata[attr_name])
+        if self.num_classes > 0:
+            for idx, attr_name in enumerate(semantic_names):
+               semantic[:, idx] = np.asarray(plydata[attr_name])
 
         return xyz, features_dc, features_extra, opacities, scales, rots, semantic
 
@@ -690,8 +689,9 @@ class GaussianModel:
             l.append('scale_{}'.format(i))
         for i in range(self._rotation.shape[1]):
             l.append('rot_{}'.format(i))
-        #for i in range(self._semantic.shape[1]):
-        #    l.append('semantic_{}'.format(i))
+        if self.num_classes > 0:
+            for i in range(self._semantic.shape[1]):
+               l.append('semantic_{}'.format(i))
         return l
 
     def save_pt(self, path):
@@ -734,7 +734,7 @@ class GaussianModel:
 
     def save_ply(self, path):
         mkdir_p(os.path.dirname(path))
-        plydata_list = []
+        bg_plydata_list = []
 
         xyz = self._xyz.detach().cpu().numpy()
         normals = np.zeros_like(xyz)
@@ -748,21 +748,23 @@ class GaussianModel:
         dtype_full = [(attribute, 'f4') for attribute in self.construct_list_of_attributes()]
 
         elements = np.empty(xyz.shape[0], dtype=dtype_full)
-        #attributes = np.concatenate((xyz, normals, f_dc, f_rest, opacities, scale, rotation, semantic), axis=1)
-        attributes = np.concatenate((xyz, normals, f_dc, f_rest, opacities, scale, rotation), axis=1)
+        if self.num_classes > 0:
+            attributes = np.concatenate((xyz, normals, f_dc, f_rest, opacities, scale, rotation, semantic), axis=1)
+        else:
+            attributes = np.concatenate((xyz, normals, f_dc, f_rest, opacities, scale, rotation), axis=1)
         elements[:] = list(map(tuple, attributes))
         el = PlyElement.describe(elements, 'vertex')
         # PlyData([el]).write(path)
-        plydata_list.append(el)
+        bg_plydata_list.append(el)
 
         for obj_model in self.obj_list:
-           # plydata = obj_model.make_ply()
-           # model_name = obj_model.get_modelname
-           # plydata = PlyElement.describe(plydata, f'vertex_{model_name}')
-           # plydata_list.append(plydata)
-            print('==== obj', obj_model.get_modelname,'points:', obj_model._xyz.size(0))
+            plydata = obj_model.make_ply()
+            model_name = obj_model.get_modelname
+            plydata = PlyElement.describe(plydata, f'vertex_{model_name}')
+            PlyData([plydata]).write(os.path.join(path, model_name + "_point_cloud.ply"))
+            print('==== ' + model_name + 'saved:', model_name,'points:', obj_model._xyz.size(0))
 
-        PlyData(plydata_list).write(path)
+        PlyData(bg_plydata_list).write(os.path.join(path, "point_cloud.ply"))
 
     def reset_opacity(self):
         opacities_new = torch.cat((self._opacity[:self.skybox_points], inverse_sigmoid(torch.min(self.get_self_opacity[self.skybox_points:], torch.ones_like(self.get_self_opacity[self.skybox_points:])*0.01))), 0)
@@ -772,20 +774,17 @@ class GaussianModel:
         for obj_model in self.obj_list:
             obj_model.reset_opacity()
 
-    def load_ply(self, path):
-        # plydata_list = PlyData.read(path).elements
-        # for plydata in plydata_list:
-        #     model_name = plydata.name[7:] # vertex_.....
-        #     if model_name in self.model_name_id.keys():
-        #         print('Loading model', model_name)
-        #         model: GaussianModel = getattr(self, model_name)
-        #         model.load_ply(path=None, input_ply=plydata)
-        #         plydata_list = PlyData.read(path).elements
-        #
-        # self.active_sh_degree = self.max_sh_degree
+    def load_ply(self, dir):
+        for model in self.obj_list:
+            model_name = model.get_modelname
+            path = os.path.join(dir, model_name + "_point_cloud.ply")
+            plydata_list = PlyData.read(path).elements
+            plydata = plydata_list[0]
+            # model_name = plydata.name[7:] # vertex_.....
+            print('Loading model', model_name)
+            model.load_ply(path=None, input_ply=plydata)
 
-
-        xyz, features_dc, features_extra, opacities, scales, rots, semantic = self.load_ply_file(path, self.max_sh_degree)
+        xyz, features_dc, features_extra, opacities, scales, rots, semantic = self.load_ply_file(os.path.join(dir, "point_cloud.ply"), self.max_sh_degree)
 
         self._xyz = nn.Parameter(torch.tensor(xyz, dtype=torch.float, device="cuda").requires_grad_(True))
         self._features_dc = nn.Parameter(torch.tensor(features_dc, dtype=torch.float, device="cuda").transpose(1, 2).contiguous().requires_grad_(True))
@@ -965,8 +964,8 @@ class GaussianModel:
             obj_model.reset_opacity()
         torch.cuda.empty_cache()
 
-        # for obj_model in self.obj_list:
-        #     obj_model.densify_and_prune(max_grad, min_opacity, prune_big_points)
+        #for obj_model in self.obj_list:
+        #    obj_model.densify_and_prune(max_grad, min_opacity, False) #prune_big_points
 
     def set_max_radii2D(self, radii, update_filter):
         start, end = self.graph_gaussian_range['background']
@@ -975,7 +974,7 @@ class GaussianModel:
             max_radii2D_model = radii[start:end+1]
             self.max_radii2D[visibility_model] = torch.max(self.max_radii2D[visibility_model], max_radii2D_model[visibility_model])
         for obj_model in self.visible_objects:
-            start, end = self.graph_gaussian_range[obj_model.name]
+            start, end = self.graph_gaussian_range[obj_model.get_modelname]
             visibility_model = update_filter[(update_filter >= start) & (update_filter <= end)] - start
             if len(visibility_model) == 0:
                 continue
@@ -995,7 +994,7 @@ class GaussianModel:
             self.denom[visibility_model] += 1
 
         for obj_model in self.visible_objects:
-            start, end = self.graph_gaussian_range[obj_model.name]
+            start, end = self.graph_gaussian_range[obj_model.get_modelname]
             visibility_model = update_filter[(update_filter >= start) & (update_filter <= end)] - start
             if len(visibility_model) == 0:
                 continue

@@ -76,8 +76,7 @@ class Scene:
         if self.loaded_iter:
             self.gaussians.load_ply(os.path.join(self.model_path,
                                                            "point_cloud",
-                                                           "iteration_" + str(self.loaded_iter),
-                                                           "point_cloud.ply"))
+                                                           "iteration_" + str(self.loaded_iter)))
         elif args.pretrained:
             self.gaussians.create_from_pt(args.pretrained, self.cameras_extent)
         elif create_from_hier:
@@ -103,7 +102,7 @@ class Scene:
             if self.gaussians._xyz.size(0) > 18_000_000:
                 self.gaussians.save_pt(point_cloud_path)
             else:
-                self.gaussians.save_ply(os.path.join(point_cloud_path, "point_cloud.ply"))
+                self.gaussians.save_ply(point_cloud_path)
 
             exposure_dict = {
                 image_name: self.gaussians.get_exposure_from_name(image_name).detach().cpu().numpy().tolist()

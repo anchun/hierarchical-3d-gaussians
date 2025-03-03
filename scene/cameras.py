@@ -26,7 +26,7 @@ class Camera(nn.Module):
                  image_name, uid,
                  trans=np.array([0.0, 0.0, 0.0]), scale=1.0, data_device = "cuda",
                  train_test_exp=False, is_test_dataset=False, is_test_view=False,
-                 metadata=None
+                 metadata=None, semantic=None
                  ):
         super(Camera, self).__init__()
 
@@ -38,6 +38,7 @@ class Camera(nn.Module):
         self.FoVy = FoVy
         self.image_name = image_name
         self.metadata = metadata
+        self.semantic = semantic
 
         try:
             self.data_device = torch.device(data_device)
@@ -116,6 +117,8 @@ class Camera(nn.Module):
         else:
             self.extrinsic = None
 
+        if metadata is not None and 'semantic' in self.metadata.keys():
+            self.semantic = torch.tensor(self.metadata['semantic']).to(self.data_device)
 
 class MiniCam:
     def __init__(self, width, height, fovy, fovx, znear, zfar, world_view_transform, full_proj_transform):

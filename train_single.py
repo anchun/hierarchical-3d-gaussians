@@ -36,7 +36,7 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
         assert False, "Could not recognize scene type!"
 
     print('==== opt.use_camera_pose_correction:', opt.use_camera_pose_correction)
-    gaussians = GaussianModel(dataset.sh_degree, scene_info.scene_meta, num_cameras=len(scene_info.train_cameras),use_camera_pose_correction=opt.use_camera_pose_correction)
+    gaussians = GaussianModel(dataset.sh_degree, scene_info.scene_meta, num_camera_poses=len(scene_info.train_cameras),use_camera_pose_correction=opt.use_camera_pose_correction, num_classes=opt.num_semantic_class)
     scene = Scene(dataset, scene_info, gaussians)
     gaussians.training_setup(opt)
     if checkpoint:
@@ -142,6 +142,21 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
                     Ll1depth = Ll1depth.item()
                 else:
                     Ll1depth = 0
+
+                if opt.num_semantic_class > 0 and viewpoint_cam.semantic is not None:
+                    gt_semantic = viewpoint_cam.semantic.cuda().long()  # [1, H, W]
+                    if torch.all(gt_semantic == -1):
+                        semantic_loss = torch.zeros_like(Ll1)
+                    else:
+                        semantic = render_pkg['semantic'].unsqueeze(0)  # [1, S, H, W]
+                        semantic_loss = torch.nn.functional.cross_entropy(
+                            input=semantic,
+                            target=gt_semantic,
+                            ignore_index=-1,
+                            reduction='mean'
+                        )
+                    lambda_semantic = 0.1 # TODO
+                    loss += lambda_semantic * semantic_loss
 
                 # if gaussians.use_camera_pose_correction:
                 #     pose_correction_reg_loss = gaussians.pose_correction.regularization_loss()

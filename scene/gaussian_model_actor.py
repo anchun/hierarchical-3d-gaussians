@@ -49,18 +49,15 @@ def correct_gaussian_rotation(camera, rotation):
 class GaussianModelActor():
     def __init__(
         self, 
-        model_name, 
         obj_meta=None,
         num_frames=None,
         max_sh_degree=1,
+        num_classes=0,
     ):
         #cfg_model = cfg.model.gaussian
-        self.model_name = model_name
 
         # semantic
-        self.num_classes = 0 # TODO
-        # self.semantic_mode = cfg_model.get('semantic_mode', 'logits')
-        # assert self.semantic_mode in ['logits', 'probabilities']
+        self.num_classes = num_classes
         self.semantic_mode = 'logits'
 
         # spherical harmonics
@@ -96,8 +93,8 @@ class GaussianModelActor():
         self.num_frames = num_frames
 
         # fourier spherical harmonics
-        self.fourier_dim = 1 #cfg.model.gaussian.get('fourier_dim', 1)
-        self.fourier_scale = 1 #cfg.model.gaussian.get('fourier_scale', 1.)
+        self.fourier_dim = 1 #cfg.model.gaussian.get('fourier_dim', 1) TODO
+        self.fourier_scale = 1 #cfg.model.gaussian.get('fourier_scale', 1.) TODO
         
         # bbox
         length, width, height = obj_meta['length'], obj_meta['width'], obj_meta['height']
@@ -109,10 +106,9 @@ class GaussianModelActor():
         box_scale=1.5
         extent = max(length*1.5/box_scale, width*1.5/box_scale, height) / 2.
         self.extent = torch.tensor([extent]).float().cuda()   
-        print('==== name', self.model_name, ', box:', self.bbox,', extend:', self.extent)
 
         num_classes = 0 # 1 if cfg.data.get('use_semantic', False) else 0
-        self.num_classes_global = 1 # cfg.data.num_classes if cfg.data.get('use_semantic', False) else 0        
+        self.num_classes_global = 1 # cfg.data.num_classes if cfg.data.get('use_semantic', False) else 0 TODO
         #super().__init__(model_name=model_name, num_classes=num_classes)
         
         self.flip_prob = 0 # cfg.model.gaussian.get('flip_prob', 0.) if not self.deformable else 0.
@@ -156,13 +152,17 @@ class GaussianModelActor():
 
     @property
     def get_semantic(self):
-        semantic = torch.zeros((self.get_xyz.shape[0], self.num_classes_global)).float().cuda()
-        if self.semantic_mode == 'logits':
-            semantic[:, self.obj_class_label] = self._semantic[:, 0] # ubounded semantic        
-        elif self.semantic_mode == 'probabilities':
-            semantic[:, self.obj_class_label] = torch.nn.functional.sigmoid(self._semantic[:, 0]) # 0 ~ 1
-
-        return semantic
+        # semantic = torch.zeros((self.get_xyz.shape[0], self.num_classes_global)).float().cuda()
+        # if self.semantic_mode == 'logits':
+        #     semantic[:, self.obj_class_label] = self._semantic[:, 0] # ubounded semantic
+        # elif self.semantic_mode == 'probabilities':
+        #     semantic[:, self.obj_class_label] = torch.nn.functional.sigmoid(self._semantic[:, 0]) # 0 ~ 1
+        #
+        # return semantic
+        if True:  # self.semantic_mode == 'logits':
+            return self._semantic
+        else: # 'probabilities':
+            return torch.nn.functional.softmax(self._semantic, dim=1)
 
     @property
     def get_scaling(self):
@@ -231,7 +231,7 @@ class GaussianModelActor():
         return features
            
     def create_from_pcd(self, spatial_lr_scale):
-        #pointcloud_path = os.path.join(cfg.model_path, 'input_ply', f'points3D_{self.model_name}.ply')   
+        #pointcloud_path = os.path.join(cfg.model_path, 'input_ply', f'points3D_{self.get_modelname}.ply')   
         if False: # os.path.exists(pointcloud_path): TODO
             pcd = fetchPly(pointcloud_path)
             pointcloud_xyz = np.asarray(pcd.points)
@@ -244,7 +244,7 @@ class GaussianModelActor():
 
         if self.random_initialization is True:
             points_dim = 50
-            print(f'Creating random pointcloud for {self.model_name}')
+            print(f'Creating random pointcloud for {self.get_modelname}')
             points_x, points_y, points_z = np.meshgrid(
                 np.linspace(-1., 1., points_dim), np.linspace(-1., 1., points_dim), np.linspace(-1., 1., points_dim),
             )
@@ -289,7 +289,7 @@ class GaussianModelActor():
         features_rest = torch.zeros(fused_color.shape[0], 3, (self.max_sh_degree + 1) ** 2 - 1).float().cuda()
         features_dc[:, :3, 0] = fused_color
 
-        #print(f"Number of points at initialisation for {self.model_name}: ", fused_point_cloud.shape[0])
+        #print(f"Number of points at initialisation for {self.get_modelname}: ", fused_point_cloud.shape[0])
         dist2 = torch.clamp_min(distCUDA2(torch.from_numpy(np.asarray(pointcloud_xyz)).float().cuda()), 0.0000001)
         scales = torch.log(torch.sqrt(dist2))[..., None].repeat(1, 3)
         rots = torch.zeros((fused_point_cloud.shape[0], 4)).cuda()
@@ -323,8 +323,10 @@ class GaussianModelActor():
         dtype_full = [(attribute, 'f4') for attribute in self.construct_list_of_attributes()]
 
         elements = np.empty(xyz.shape[0], dtype=dtype_full)
-        #attributes = np.concatenate((xyz, normals, f_dc, f_rest, opacities, scale, rotation, semantic), axis=1)
-        attributes = np.concatenate((xyz, normals, f_dc, f_rest, opacities, scale, rotation, ), axis=1)
+        if self.num_classes > 0:
+            attributes = np.concatenate((xyz, normals, f_dc, f_rest, opacities, scale, rotation, semantic), axis=1)
+        else:
+            attributes = np.concatenate((xyz, normals, f_dc, f_rest, opacities, scale, rotation), axis=1)
         elements[:] = list(map(tuple, attributes))
 
         return elements
@@ -369,8 +371,9 @@ class GaussianModelActor():
         semantic_names = [p.name for p in plydata.properties if p.name.startswith("semantic_")]
         semantic_names = sorted(semantic_names, key=lambda x: int(x.split('_')[-1]))
         semantic = np.zeros((xyz.shape[0], len(semantic_names)))
-        for idx, attr_name in enumerate(semantic_names):
-            semantic[:, idx] = np.asarray(plydata[attr_name])
+        if self.num_classes > 0:
+            for idx, attr_name in enumerate(semantic_names):
+                semantic[:, idx] = np.asarray(plydata[attr_name])
 
         self._xyz = nn.Parameter(torch.tensor(xyz, dtype=torch.float, device="cuda").requires_grad_(True))
         self._features_dc = nn.Parameter(
@@ -454,7 +457,7 @@ class GaussianModelActor():
         self.percent_dense = 0.01 # training_args.percent_dense
         self.percent_big_ws = 0.1 # training_args.percent_big_ws
         # self.optimizer = torch.optim.Adam(l, lr=0.0, eps=1e-15)
-        self.optimizer = torch.optim.Adam(l, lr=0.0, eps=1e-15)
+        self.optimizer = Adam(l, lr=0.0, eps=1e-15)
         self.xyz_scheduler_args = get_expon_lr_func(
             lr_init=training_args.position_lr_init * self.spatial_lr_scale,
             lr_final=training_args.position_lr_final * self.spatial_lr_scale,
@@ -467,15 +470,13 @@ class GaussianModelActor():
         self.tensor_dict = dict()
 
     def update_optimizer(self):
-        #if self._opacity.grad != None:
-        #    relevant = (self._opacity.grad.flatten() != 0).nonzero()
-        #    relevant = relevant.flatten().long()
-        #    if relevant.shape[0] > 0:
-        #        print('==== relevant.shape:', relevant.shape, ', max relevant:', max(relevant))
-        #    self.optimizer.step(relevant)
-        #    self.optimizer.zero_grad(set_to_none = True)
-        self.optimizer.step()
-        self.optimizer.zero_grad(set_to_none=True)
+        if self._opacity.grad != None:
+           relevant = (self._opacity.grad.flatten() != 0).nonzero()
+           relevant = relevant.flatten().long()
+           self.optimizer.step(relevant)
+           self.optimizer.zero_grad(set_to_none = True)
+        # self.optimizer.step()
+        # self.optimizer.zero_grad(set_to_none=True)
 
     def prune_optimizer(self, mask, prune_list=None):
         optimizable_tensors = {}
@@ -547,8 +548,9 @@ class GaussianModelActor():
             l.append('scale_{}'.format(i))
         for i in range(self._rotation.shape[1]):
             l.append('rot_{}'.format(i))
-        #for i in range(self._semantic.shape[1]):
-        #    l.append('semantic_{}'.format(i))
+        if self.num_classes > 0:
+            for i in range(self._semantic.shape[1]):
+               l.append('semantic_{}'.format(i))
         return l
 
 

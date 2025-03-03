@@ -150,7 +150,7 @@ def name_2_frame_id(name):
     return int(frame_id)
 
 
-def readNOTRCameras(ego_poses, cam_pose_info_in_colmap, cam_extrinsics, cam_intrinsics, cams_timestamps, depths_params, images_folder, masks_folder, depths_folder, test_cam_names_list, use_npy_depth=False):
+def readNOTRCameras(semantics, ego_poses, cam_pose_info_in_colmap, cam_extrinsics, cam_intrinsics, cams_timestamps, depths_params, images_folder, masks_folder, depths_folder, test_cam_names_list, use_npy_depth=False):
     cam_infos = []
     num_cams = len(cam_intrinsics)
     for idx, image_id in enumerate(cam_pose_info_in_colmap):
@@ -165,6 +165,8 @@ def readNOTRCameras(ego_poses, cam_pose_info_in_colmap, cam_extrinsics, cam_intr
         metadata['frame_id'] = frame_id
         metadata['extrinsic'] = cam_extrinsics[camera_id]
         metadata['timestamp'] = cams_timestamps[camera_id][frame_id]
+        if semantics is not None:
+            metadata['semantic'] = semantics[camera_id][frame_id]
         intr = cam_intrinsics[camera_id]
         height = intr.height
         width = intr.width
@@ -412,9 +414,14 @@ def readNOTRSceneInfo(project_dir, path, images, masks, depths, eval, train_test
 
     num_frames = scene_meta['num_frames']
     num_cameras = len(cam_intrinsics)
+    ego_poses = scene_meta['poses']
+    if 'semantics' in scene_meta.keys():
+        semantics = scene_meta['semantics'].reshape(num_frames, num_cameras).T
+        scene_meta['semantics'] = semantics
+    else:
+        semantics = None
     cams_timestamps = scene_meta['cams_timestamps'].reshape(num_frames, num_cameras).T
     scene_meta['cams_timestamps'] = cams_timestamps
-    ego_poses = scene_meta['poses']
     if depths != "" and not use_npy_depth:
         try:
             with open(depth_params_file, "r") as f:
@@ -456,6 +463,7 @@ def readNOTRSceneInfo(project_dir, path, images, masks, depths, eval, train_test
     masks_reading_dir = masks if masks == "" else os.path.join(path, masks)
 
     cam_infos_unsorted = readNOTRCameras(
+        semantics=semantics,
         ego_poses=ego_poses,
         cam_pose_info_in_colmap=cam_pose_info_in_colmap,
         cam_extrinsics=cam_extrinsics,

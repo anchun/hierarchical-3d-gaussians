@@ -34,7 +34,7 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
     else:
         assert False, "Could not recognize scene type!"
 
-    gaussians = GaussianModel(1, scene_info.scene_meta, num_cameras=len(scene_info.train_cameras))
+    gaussians = GaussianModel(1, scene_info.scene_meta, num_camera_poses=len(scene_info.train_cameras))
     scene = Scene(dataset, scene_info, gaussians)
     gaussians.training_setup(opt)
     if checkpoint:

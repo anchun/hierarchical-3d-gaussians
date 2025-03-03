@@ -107,6 +107,7 @@ class OptimizationParams(ParamGroup):
         self.depth_l1_weight_init = 1.0
         self.depth_l1_weight_final = 0.01
         self.use_camera_pose_correction = False
+        self.num_semantic_class = 0
         super().__init__(parser, "Optimization Parameters")
 
 def get_combined_args(parser : ArgumentParser):
