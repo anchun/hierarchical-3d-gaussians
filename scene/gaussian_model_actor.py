@@ -25,27 +25,6 @@ def IDFT(time, dim):
         return idft
 
 
-def correct_gaussian_xyz(camera, xyz):
-    pose_correction_trans = camera.pose_correction_trans
-    pose_correction_rot = camera.pose_correction_rots
-    pose_correction_rot = torch.nn.functional.normalize(pose_correction_rot.unsqueeze(0), dim=-1)
-    pose_correction_rot = quaternion_to_matrix(pose_correction_rot).squeeze(0)
-    pose_correction_matrix = torch.cat([pose_correction_rot, pose_correction_trans], dim=-1)
-    padding = torch.tensor([[0, 0, 0, 1]]).float().cuda()
-    pose_correction_matrix = torch.cat([pose_correction_matrix, padding], dim=0)
-    xyz = torch.cat([xyz, torch.ones_like(xyz[..., :1])], dim=-1)
-    xyz = xyz @ pose_correction_matrix.T
-    xyz = xyz[:, :3]
-    return xyz
-
-
-def correct_gaussian_rotation(camera, rotation):
-    pose_correction_rot = camera.pose_correction_rots
-    pose_correction_rot = torch.nn.functional.normalize(pose_correction_rot.unsqueeze(0), dim=-1)
-    rotation = quaternion_raw_multiply(rotation, pose_correction_rot)
-    return rotation
-
-
 class GaussianModelActor():
     def __init__(
         self, 
@@ -243,7 +222,7 @@ class GaussianModelActor():
             self.random_initialization = True
 
         if self.random_initialization is True:
-            points_dim = 50
+            points_dim = 20
             print(f'Creating random pointcloud for {self.get_modelname}')
             points_x, points_y, points_z = np.meshgrid(
                 np.linspace(-1., 1., points_dim), np.linspace(-1., 1., points_dim), np.linspace(-1., 1., points_dim),
@@ -278,7 +257,7 @@ class GaussianModelActor():
             pcd = fetchPly(pointcloud_path)
             pointcloud_xyz = np.asarray(pcd.points)
             pointcloud_rgb = np.asarray(pcd.colors)
-            
+
         fused_point_cloud = torch.tensor(np.asarray(pointcloud_xyz)).float().cuda()
         fused_color = RGB2SH(torch.tensor(np.asarray(pointcloud_rgb)).float().cuda())
 
@@ -456,8 +435,8 @@ class GaussianModelActor():
         
         self.percent_dense = 0.01 # training_args.percent_dense
         self.percent_big_ws = 0.1 # training_args.percent_big_ws
-        # self.optimizer = torch.optim.Adam(l, lr=0.0, eps=1e-15)
-        self.optimizer = Adam(l, lr=0.0, eps=1e-15)
+        self.optimizer = torch.optim.Adam(l, lr=0.0, eps=1e-15)
+        # self.optimizer = Adam(l, lr=0.0, eps=1e-15)
         self.xyz_scheduler_args = get_expon_lr_func(
             lr_init=training_args.position_lr_init * self.spatial_lr_scale,
             lr_final=training_args.position_lr_final * self.spatial_lr_scale,
@@ -470,13 +449,13 @@ class GaussianModelActor():
         self.tensor_dict = dict()
 
     def update_optimizer(self):
-        if self._opacity.grad != None:
-           relevant = (self._opacity.grad.flatten() != 0).nonzero()
-           relevant = relevant.flatten().long()
-           self.optimizer.step(relevant)
-           self.optimizer.zero_grad(set_to_none = True)
-        # self.optimizer.step()
-        # self.optimizer.zero_grad(set_to_none=True)
+        # if self._opacity.grad != None:
+        #    relevant = (self._opacity.grad.flatten() != 0).nonzero()
+        #    relevant = relevant.flatten().long()
+        #    self.optimizer.step(relevant)
+        #    self.optimizer.zero_grad(set_to_none = True)
+        self.optimizer.step()
+        self.optimizer.zero_grad(set_to_none=True)
 
     def prune_optimizer(self, mask, prune_list=None):
         optimizable_tensors = {}
@@ -622,6 +601,7 @@ class GaussianModelActor():
                 prune_mask = torch.logical_or(prune_mask, big_points_ws)
                 prune_mask = torch.logical_or(prune_mask, points_outside_box)
             
+        # print(f'==== densify_and_prune {self.get_modelname}: number of points to prune: {prune_mask.sum()}')
         self.prune_points(prune_mask)
         
         # Reset
@@ -661,13 +641,17 @@ class GaussianModelActor():
         padded_extent = torch.zeros((n_init_points), device="cuda")
         padded_extent[:grads.shape[0]] = scene_extent
 
-        selected_pts_mask = torch.where(padded_grad >= grad_threshold, True, False)
+        # selected_pts_mask = torch.where(padded_grad >= grad_threshold, True, False)
+        # selected_pts_mask = torch.logical_and(selected_pts_mask,
+        #                                       torch.max(self.get_scaling,
+        #                                                 dim=1).values > self.percent_dense * padded_extent)
+        selected_pts_mask = torch.where(padded_grad * self.max_radii2D * torch.pow(self.get_opacity.flatten(), 1/5.0) >= grad_threshold, True, False)
+        selected_pts_mask = torch.logical_and(selected_pts_mask, self.get_opacity.flatten() > 0.15)
         selected_pts_mask = torch.logical_and(selected_pts_mask,
-                                              torch.max(self.get_scaling,
-                                                        dim=1).values > self.percent_dense * padded_extent)
+                                              torch.max(self.get_scaling, dim=1).values > self.percent_dense*scene_extent)
 
         self.scalar_dict['points_split'] = selected_pts_mask.sum().item()
-        #print(f'Number of points to split: {selected_pts_mask.sum()}')
+        print(f'==== Split {self.get_modelname}: number of points to split: {selected_pts_mask.sum()}')
 
         stds = self.get_scaling[selected_pts_mask].repeat(N, 1)
         means = torch.zeros((stds.size(0), 3), device="cuda")
@@ -693,18 +677,24 @@ class GaussianModelActor():
 
         prune_filter = torch.cat(
             (selected_pts_mask, torch.zeros(N * selected_pts_mask.sum(), device="cuda", dtype=bool)))
+        # print(f'==== densify_and_split {self.get_modelname}: number of points to prune: {prune_filter.sum()}')
         self.prune_points(prune_filter)
 
     def densify_and_clone(self, grads, grad_threshold, scene_extent):
 
         # Extract points that satisfy the gradient condition
-        selected_pts_mask = torch.where(torch.norm(grads, dim=-1) >= grad_threshold, True, False)
+        # selected_pts_mask = torch.where(torch.norm(grads, dim=-1) >= grad_threshold, True, False)
+        # selected_pts_mask = torch.logical_and(selected_pts_mask,
+        #                                       torch.max(self.get_scaling,
+        #                                                 dim=1).values <= self.percent_dense * scene_extent)
+        selected_pts_mask = torch.where(torch.norm(grads, dim=-1) * self.max_radii2D * torch.pow(self.get_opacity.flatten(), 1/5.0) >= grad_threshold, True, False)
+        selected_pts_mask = torch.logical_and(selected_pts_mask, self.get_opacity.flatten() > 0.15)
         selected_pts_mask = torch.logical_and(selected_pts_mask,
-                                              torch.max(self.get_scaling,
-                                                        dim=1).values <= self.percent_dense * scene_extent)
+                                              torch.max(self.get_scaling, dim=1).values <= self.percent_dense*scene_extent)
 
         self.scalar_dict['points_clone'] = selected_pts_mask.sum().item()
         #print(f'Number of points to clone: {selected_pts_mask.sum()}')
+        print(f'==== Clone {self.get_modelname}: number of points to clone: {selected_pts_mask.sum()}')
 
         new_xyz = self._xyz[selected_pts_mask]
         new_features_dc = self._features_dc[selected_pts_mask]

@@ -146,7 +146,7 @@ class GaussianModel:
         timestamp = camera.metadata['timestamp']
         for obj_model in self.obj_list:
             start_timestamp, end_timestamp = obj_model.start_timestamp, obj_model.end_timestamp
-            if timestamp >= start_timestamp and timestamp <= end_timestamp:
+            if timestamp >= start_timestamp and timestamp <= end_timestamp and obj_model.get_xyz.size(0) > 0:
                 self.visible_objects.append(obj_model)
                 num_gaussians_obj = obj_model.get_xyz.shape[0]
                 self.num_gaussians += num_gaussians_obj
@@ -762,7 +762,7 @@ class GaussianModel:
             model_name = obj_model.get_modelname
             plydata = PlyElement.describe(plydata, f'vertex_{model_name}')
             PlyData([plydata]).write(os.path.join(path, model_name + "_point_cloud.ply"))
-            print('==== ' + model_name + 'saved:', model_name,'points:', obj_model._xyz.size(0))
+            print(f'==== {model_name} saved, num_points: {obj_model._xyz.size(0)}')
 
         PlyData(bg_plydata_list).write(os.path.join(path, "point_cloud.ply"))
 
@@ -958,14 +958,10 @@ class GaussianModel:
         self.prune_points(prune_mask)
 
         self.max_radii2D = torch.zeros((self._xyz.shape[0]), device="cuda")
-        #self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda")
 
-        for obj_model in self.obj_list:
-            obj_model.reset_opacity()
+        # for obj_model in self.obj_list:
+        #    obj_model.densify_and_prune(0.0002, min_opacity, prune_big_points) #max_grad
         torch.cuda.empty_cache()
-
-        #for obj_model in self.obj_list:
-        #    obj_model.densify_and_prune(max_grad, min_opacity, False) #prune_big_points
 
     def set_max_radii2D(self, radii, update_filter):
         start, end = self.graph_gaussian_range['background']
