@@ -630,15 +630,15 @@ if __name__ == '__main__':
     # 第二步，把notr格式转换成colmap格式，需要调用colmap，并收集场景信息
     scene_infos = generate_dataparser_outputs(args.output_dir,build_pointcloud=False)
     scene_infos['extrinsics'] = cam_extrinsics
-    del scene_infos['exts']
-    del scene_infos['ixts']
-    #del scene_infos['poses']
-    del scene_infos['c2ws']
+    # del scene_infos['exts']
+    # del scene_infos['ixts']
+    # del scene_infos['poses']
+    # del scene_infos['c2ws']
     # del scene_infos['obj_tracklets']
-    del scene_infos['frames']
-    del scene_infos['cams']
-    del scene_infos['frames_idx']
-    del scene_infos['obj_bounds']
+    # del scene_infos['frames']
+    # del scene_infos['cams']
+    # del scene_infos['frames_idx']
+    # del scene_infos['obj_bounds']
     for static_obj_id in scene_infos['static_object_ids']:
         if static_obj_id in all_obj_transformers.keys():
             del all_obj_transformers[static_obj_id]

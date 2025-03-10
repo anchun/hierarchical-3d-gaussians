@@ -100,6 +100,8 @@ class GaussianModel:
         self.skybox_locked = True
 
         self.metadata = metadata
+        self.inference_visible_models = [] # TODO 这是测试渲染时的编辑操作时使用的
+        self.inference_visible_replacements = {}
         self.setup_functions()
 
     def capture(self):
@@ -136,6 +138,15 @@ class GaussianModel:
         self.denom = denom
         self.optimizer.load_state_dict(opt_dict)
 
+    def set_inference_visible_models(self, visible_model_names):
+        self.inference_visible_models = []
+        for obj_model in self.obj_list:
+            if obj_model.get_modelname in visible_model_names:
+                self.inference_visible_models.append(obj_model)
+
+    def replace_inference_models(self, replacements):
+        self.inference_visible_replacements = replacements
+
     def parse_camera(self, camera: Camera):
         self.viewpoint_camera = camera
         self.current_frame = camera.metadata['frame_id']
@@ -144,7 +155,11 @@ class GaussianModel:
         self.visible_objects = []
         self.num_gaussians = 0
         timestamp = camera.metadata['timestamp']
-        for obj_model in self.obj_list:
+        if self.inference_visible_models is not None and len(self.inference_visible_models) > 0:
+            candidates = self.inference_visible_models
+        else:
+            candidates = self.obj_list
+        for obj_model in candidates:
             start_timestamp, end_timestamp = obj_model.start_timestamp, obj_model.end_timestamp
             if timestamp >= start_timestamp and timestamp <= end_timestamp and obj_model.get_xyz.size(0) > 0:
                 self.visible_objects.append(obj_model)
@@ -159,15 +174,27 @@ class GaussianModel:
 
         for obj_model in self.visible_objects:
             obj_name = obj_model.get_modelname
-            num_gaussians_obj = obj_model.get_xyz.shape[0]
+            if obj_model.get_modelname in self.inference_visible_replacements.keys():
+                # TODO 这是测试渲染时的编辑操作时临时使用的
+                replace_to_model = getattr(self, self.inference_visible_replacements[obj_model.get_modelname])
+                num_gaussians_obj = replace_to_model.get_xyz.shape[0]
+            else:
+                num_gaussians_obj = obj_model.get_xyz.shape[0]
             self.graph_gaussian_range[obj_name] = [idx, idx+num_gaussians_obj-1]
             idx += num_gaussians_obj
 
         if len(self.visible_objects) > 0:
             self.obj_rots = []
             self.obj_trans = []
-            for obj_model in self.visible_objects:
+            for i, obj_model in enumerate(self.visible_objects):
                 object_id = obj_model.object_id
+                if obj_model.get_modelname in self.inference_visible_replacements.keys():
+                # TODO 这是测试渲染时的编辑操作时临时使用的
+                    target_name = self.inference_visible_replacements[obj_model.get_modelname]
+                    target_obj = getattr(self, target_name)
+                    self.visible_objects[i] = target_obj
+                    obj_model = target_obj
+
                 obj_rot = self.actor_pose.get_tracking_rotation(object_id, self.viewpoint_camera)
                 obj_trans = self.actor_pose.get_tracking_translation(object_id, self.viewpoint_camera)
                 ego_pose = self.viewpoint_camera.ego_pose
@@ -321,7 +348,7 @@ class GaussianModel:
 
     def create_from_pcd(
             self, 
-            pcd : BasicPointCloud, 
+            point_clouds : dict,
             cam_infos : int,
             spatial_lr_scale : float,
             skybox_points: int,
@@ -329,10 +356,11 @@ class GaussianModel:
             bounds_file: str,
             skybox_locked: bool):
         for obj_model in self.obj_list:
-            obj_model.create_from_pcd(0)
+            obj_model.create_from_pcd(point_clouds)
 
         self.spatial_lr_scale = spatial_lr_scale
 
+        pcd = point_clouds['bkgd']
         xyz = torch.tensor(np.asarray(pcd.points)).float().cuda()
         fused_color = torch.tensor(np.asarray(pcd.colors)).float().cuda()
         
@@ -959,8 +987,8 @@ class GaussianModel:
 
         self.max_radii2D = torch.zeros((self._xyz.shape[0]), device="cuda")
 
-        # for obj_model in self.obj_list:
-        #    obj_model.densify_and_prune(0.0002, min_opacity, prune_big_points) #max_grad
+        for obj_model in self.obj_list:
+           obj_model.densify_and_prune(0.0002, min_opacity, prune_big_points) #max_grad
         torch.cuda.empty_cache()
 
     def set_max_radii2D(self, radii, update_filter):

@@ -113,7 +113,7 @@ class ActorPose(nn.Module):
     
     def find_closest_camera_timestamps(self, track_id, camera: Camera):
         timestamp = camera.metadata['timestamp']
-        camera_timestamps = self.camera_timestamps[camera.uid]
+        camera_timestamps = self.camera_timestamps[camera.uid]['train_timestamps']
         start_timestamp = self.obj_info[track_id]['start_timestamp']
         end_timestamp = self.obj_info[track_id]['end_timestamp']
         camera_timestamps = np.array([x for x in camera_timestamps if x >= start_timestamp and x <= end_timestamp])

@@ -209,10 +209,9 @@ class GaussianModelActor():
         features = torch.cat([features_dc, features_rest], dim=1) # [N, (sh + 1) * C, 3]
         return features
            
-    def create_from_pcd(self, spatial_lr_scale):
-        #pointcloud_path = os.path.join(cfg.model_path, 'input_ply', f'points3D_{self.get_modelname}.ply')   
-        if False: # os.path.exists(pointcloud_path): TODO
-            pcd = fetchPly(pointcloud_path)
+    def create_from_pcd(self, point_clouds):
+        if self.get_modelname in point_clouds.keys():
+            pcd = point_clouds[self.get_modelname]
             pointcloud_xyz = np.asarray(pcd.points)
             if pointcloud_xyz.shape[0] < 2000:
                 self.random_initialization = True
@@ -237,7 +236,7 @@ class GaussianModelActor():
             pointcloud_xyz = pointcloud_xyz * bbox_xyz_scale            
             pointcloud_rgb = np.random.rand(*pointcloud_xyz.shape).astype(np.float32)  
         elif not self.deformable and self.flip_prob > 0.:
-            pcd = fetchPly(pointcloud_path)
+            # pcd = fetchPly(pointcloud_path)
             pointcloud_xyz = np.asarray(pcd.points)
             pointcloud_rgb = np.asarray(pcd.colors)
             num_pointcloud_1 = (pointcloud_xyz[:, self.flip_axis] > 0).sum()
@@ -254,12 +253,13 @@ class GaussianModelActor():
             pointcloud_xyz = np.concatenate([pointcloud_xyz, pointcloud_xyz_flip], axis=0)
             pointcloud_rgb = np.concatenate([pointcloud_rgb, pointcloud_rgb_flip], axis=0)
         else:
-            pcd = fetchPly(pointcloud_path)
+            # pcd = fetchPly(pointcloud_path)
             pointcloud_xyz = np.asarray(pcd.points)
             pointcloud_rgb = np.asarray(pcd.colors)
 
         fused_point_cloud = torch.tensor(np.asarray(pointcloud_xyz)).float().cuda()
         fused_color = RGB2SH(torch.tensor(np.asarray(pointcloud_rgb)).float().cuda())
+        print(f"Number of points at initialisation for {self.get_modelname}: ", fused_point_cloud.shape[0])
 
         # features = torch.zeros((fused_color.shape[0], 3, 
         #                         (self.max_sh_degree + 1) ** 2 * self.fourier_dim)).float().cuda()
@@ -554,8 +554,8 @@ class GaussianModelActor():
 
     def densify_and_prune(self, max_grad, min_opacity, prune_big_points):
         if not (self.random_initialization or self.deformable):
-            max_grad = cfg.optim.get('densify_grad_threshold_obj', max_grad)
-            if cfg.optim.get('densify_grad_abs_obj', False):
+            # max_grad = cfg.optim.get('densify_grad_threshold_obj', max_grad)
+            if False: #cfg.optim.get('densify_grad_abs_obj', False):
                 grads = self.xyz_gradient_accum[:, 1:2] / self.denom
             else:
                 grads = self.xyz_gradient_accum[:, 0:1] / self.denom
@@ -651,7 +651,7 @@ class GaussianModelActor():
                                               torch.max(self.get_scaling, dim=1).values > self.percent_dense*scene_extent)
 
         self.scalar_dict['points_split'] = selected_pts_mask.sum().item()
-        print(f'==== Split {self.get_modelname}: number of points to split: {selected_pts_mask.sum()}')
+        # print(f'==== Split {self.get_modelname}: number of points to split: {selected_pts_mask.sum()}')
 
         stds = self.get_scaling[selected_pts_mask].repeat(N, 1)
         means = torch.zeros((stds.size(0), 3), device="cuda")
@@ -694,7 +694,7 @@ class GaussianModelActor():
 
         self.scalar_dict['points_clone'] = selected_pts_mask.sum().item()
         #print(f'Number of points to clone: {selected_pts_mask.sum()}')
-        print(f'==== Clone {self.get_modelname}: number of points to clone: {selected_pts_mask.sum()}')
+        # print(f'==== Clone {self.get_modelname}: number of points to clone: {selected_pts_mask.sum()}')
 
         new_xyz = self._xyz[selected_pts_mask]
         new_features_dc = self._features_dc[selected_pts_mask]
