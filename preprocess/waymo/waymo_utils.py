@@ -410,7 +410,7 @@ def generate_dataparser_outputs(
     
     if build_pointcloud:
         print('build point cloud')
-        pointcloud_dir = os.path.join(cfg.model_path, 'input_ply')
+        pointcloud_dir = os.path.join(datadir, 'input_ply')
         os.makedirs(pointcloud_dir, exist_ok=True)
         
         points_xyz_dict = dict()
@@ -422,7 +422,7 @@ def generate_dataparser_outputs(
             points_rgb_dict[f'obj_{track_id:03d}'] = []
 
         print('initialize from sfm pointcloud')
-        points_colmap_path = os.path.join(colmap_basedir, 'sparse/0/points3D.bin')
+        points_colmap_path = os.path.join(colmap_basedir, 'sparse/points3D.bin')
         points_colmap_xyz, points_colmap_rgb, points_colmap_error = read_points3D_binary(points_colmap_path)
         points_colmap_rgb = points_colmap_rgb / 255.
                      

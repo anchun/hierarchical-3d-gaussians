@@ -621,14 +621,15 @@ if __name__ == '__main__':
 
     # 第一步，把原始waymo转换为notr格式
     cam_extrinsics, all_obj_transformers, all_obj_rotation_matrixes = parse_seq_rawdata(
-        process_list=['pose', 'calib', 'image', 'track', 'dynamic_mask'], # 'lidar'
+        process_list=['pose', 'calib', 'image', 'track', 'dynamic_mask', 'lidar'],
+        # process_list=['lidar'],
         seq_path=args.tf_record,
         seq_save_dir=args.output_dir,
         track_file=args.output_dir + '/object_infos.txt',
     )
 
     # 第二步，把notr格式转换成colmap格式，需要调用colmap，并收集场景信息
-    scene_infos = generate_dataparser_outputs(args.output_dir,build_pointcloud=False)
+    scene_infos = generate_dataparser_outputs(args.output_dir,build_pointcloud=True)
     scene_infos['extrinsics'] = cam_extrinsics
     # del scene_infos['exts']
     # del scene_infos['ixts']

@@ -427,7 +427,7 @@ def readNOTRSceneInfo(project_dir, path, images, masks, depths, eval, train_test
     ## if depth_params_file isnt there AND depths file is here -> throw error
     depths_params = None
     scene_meta = joblib.load(os.path.join(project_dir, "scene_meta.bin"))
-    cam_extrinsics = scene_meta['extrinsics'][:len(cam_intrinsics.keys())]
+    # cam_extrinsics = scene_meta['extrinsics'][:len(cam_intrinsics.keys())]
 
     num_frames = scene_meta['num_frames']
     num_cameras = len(cam_intrinsics)
@@ -462,19 +462,13 @@ def readNOTRSceneInfo(project_dir, path, images, masks, depths, eval, train_test
     bin_path = os.path.join(path, "sparse/0/points3D.bin")
     txt_path = os.path.join(path, "sparse/0/points3D.txt")
 
-    # try:
-    #     xyz_path = os.path.join(path, "sparse/0/xyz.pt")
-    #     rgb_path = os.path.join(path, "sparse/0/rgb.pt")
-    #     pcd = fetchPt(xyz_path, rgb_path)
-    # except:
-    #     if not os.path.exists(ply_path):
-    #         print("Converting point3d.bin to .ply, will happen only the first time you open the scene.")
-    #         try:
-    #             xyz, rgb, _ = read_points3D_binary(bin_path)
-    #         except:
-    #             xyz, rgb, _ = read_points3D_text(txt_path)
-    #         storePly(ply_path, xyz, rgb)
-    #     pcd = fetchPly(ply_path)
+    if not os.path.exists(ply_path):
+        print("Converting point3d.bin to .ply, will happen only the first time you open the scene.")
+        try:
+            xyz, rgb, _ = read_points3D_binary(bin_path)
+        except:
+            xyz, rgb, _ = read_points3D_text(txt_path)
+        storePly(ply_path, xyz, rgb)
 
     point_clouds = {}
     for ply_name in os.listdir(os.path.join(project_dir, 'input_ply')):
