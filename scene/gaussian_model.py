@@ -93,6 +93,7 @@ class GaussianModel:
         self.nodes = None
         self.boxes = None
         self.num_camera_poses = num_camera_poses
+        self.is_dynamic_object_enabled = False
 
         self.pretrained_exposures = None
 
@@ -100,9 +101,18 @@ class GaussianModel:
         self.skybox_locked = True
 
         self.metadata = metadata
-        self.inference_visible_models = [] # TODO 这是测试渲染时的编辑操作时使用的
+        self.visible_dynamic_object_names = []
         self.inference_visible_replacements = {}
         self.setup_functions()
+
+
+    def disable_dynamic_objects(self):
+        self.is_dynamic_object_enabled = False
+
+
+    def enable_dynamic_objects(self):
+        self.is_dynamic_object_enabled = True
+
 
     def capture(self):
         return (
@@ -138,11 +148,8 @@ class GaussianModel:
         self.denom = denom
         self.optimizer.load_state_dict(opt_dict)
 
-    def set_inference_visible_models(self, visible_model_names):
-        self.inference_visible_models = []
-        for obj_model in self.obj_list:
-            if obj_model.get_modelname in visible_model_names:
-                self.inference_visible_models.append(obj_model)
+    def set_visible_dynamic_object_names(self, visible_model_names):
+        self.visible_dynamic_object_names = visible_model_names
 
     def replace_inference_models(self, replacements):
         self.inference_visible_replacements = replacements
@@ -155,13 +162,22 @@ class GaussianModel:
         self.visible_objects = []
         self.num_gaussians = 0
         timestamp = camera.metadata['timestamp']
-        if self.inference_visible_models is not None and len(self.inference_visible_models) > 0:
-            candidates = self.inference_visible_models
-        else:
+
+        # 训练时，每次forward需要控制是否更新动态对象，见train_single.py
+        # 推理时，可以控制哪里动态对象可见
+        if type(self.visible_dynamic_object_names) == str and self.visible_dynamic_object_names == 'all':
             candidates = self.obj_list
+        elif type(self.visible_dynamic_object_names) == str and self.visible_dynamic_object_names == 'none':
+            candidates = []
+        else:
+            candidates = []
+            for obj_model in self.obj_list:
+                if obj_model.get_modelname in self.visible_dynamic_object_names:
+                    candidates.append(obj_model)
+
         for obj_model in candidates:
             start_timestamp, end_timestamp = obj_model.start_timestamp, obj_model.end_timestamp
-            if timestamp >= start_timestamp and timestamp <= end_timestamp and obj_model.get_xyz.size(0) > 0:
+            if timestamp >= start_timestamp and timestamp <= end_timestamp and obj_model.get_xyz.size(0) > 0 and len(obj_model.get_xyz.shape) == 2: # 会有xyz.shape3维的情况。TODO 待查
                 self.visible_objects.append(obj_model)
                 num_gaussians_obj = obj_model.get_xyz.shape[0]
                 self.num_gaussians += num_gaussians_obj
@@ -829,12 +845,13 @@ class GaussianModel:
         for group in self.optimizer.param_groups:
             if group["name"] == name:
                 stored_state = self.optimizer.state.get(group['params'][0], None)
-                stored_state["exp_avg"] = torch.zeros_like(tensor)
-                stored_state["exp_avg_sq"] = torch.zeros_like(tensor)
+                if stored_state is not None:
+                    stored_state["exp_avg"] = torch.zeros_like(tensor)
+                    stored_state["exp_avg_sq"] = torch.zeros_like(tensor)
 
-                del self.optimizer.state[group['params'][0]]
-                group["params"][0] = nn.Parameter(tensor.requires_grad_(True))
-                self.optimizer.state[group['params'][0]] = stored_state
+                    del self.optimizer.state[group['params'][0]]
+                    group["params"][0] = nn.Parameter(tensor.requires_grad_(True))
+                    self.optimizer.state[group['params'][0]] = stored_state
 
                 optimizable_tensors[group["name"]] = group["params"][0]
         return optimizable_tensors

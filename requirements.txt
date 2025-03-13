@@ -11,6 +11,8 @@ matplotlib
 protobuf==3.19.0
 open3d
 roma
+imageio
+imageio-ffmpeg
 submodules/hierarchy-rasterizer
 submodules/simple-knn
 submodules/gaussianhierarchy

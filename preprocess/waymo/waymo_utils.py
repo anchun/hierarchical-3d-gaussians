@@ -258,9 +258,8 @@ def padding_tracklets(tracklets, frame_timestamps, min_timestamp, max_timestamp)
     return tracklets, frame_timestamps
     
 def generate_dataparser_outputs(
-        datadir, 
+        datadir, pts3d_dict, pts2d_dict,
         selected_frames=None, 
-        build_pointcloud=True, 
         cameras=[0, 1, 2, 3, 4]
     ):
     image_dir = os.path.join(datadir, 'images')
@@ -408,7 +407,7 @@ def generate_dataparser_outputs(
         from colmap_waymo_full import run_colmap_waymo
         run_colmap_waymo(datadir, colmap_basedir, result)
     
-    if build_pointcloud:
+    if True: #build_pointcloud:
         print('build point cloud')
         pointcloud_dir = os.path.join(datadir, 'input_ply')
         os.makedirs(pointcloud_dir, exist_ok=True)
@@ -427,9 +426,9 @@ def generate_dataparser_outputs(
         points_colmap_rgb = points_colmap_rgb / 255.
                      
         print('initialize from lidar pointcloud')
-        pointcloud_path = os.path.join(datadir, 'pointcloud.npz')
-        pts3d_dict = np.load(pointcloud_path, allow_pickle=True)['pointcloud'].item()
-        pts2d_dict = np.load(pointcloud_path, allow_pickle=True)['camera_projection'].item()
+        # pointcloud_path = os.path.join(datadir, 'pointcloud.npz')
+        # pts3d_dict = np.load(pointcloud_path, allow_pickle=True)['pointcloud'].item()
+        # pts2d_dict = np.load(pointcloud_path, allow_pickle=True)['camera_projection'].item()
 
         for i, frame in tqdm(enumerate(range(start_frame, end_frame+1))):
             idxs = list(range(i * num_cameras, (i+1) * num_cameras))

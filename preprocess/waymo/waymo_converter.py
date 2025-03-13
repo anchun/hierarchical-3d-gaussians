@@ -213,7 +213,7 @@ def parse_seq_rawdata(process_list, seq_path, seq_save_dir, track_file, start_id
         for i in range(5):
             np.savetxt(os.path.join(extrinsic_save_dir, f"{str(camera_names[i] - 1)}.txt"), extrinsics[i])
             np.savetxt(os.path.join(intrinsic_save_dir, f"{str(camera_names[i] - 1)}.txt"), intrinsics[i])
-        cam_extrinsics = extrinsics
+        # cam_extrinsics = extrinsics
     
     if 'image' in process_list:
         image_save_dir = os.path.join(seq_save_dir, 'images')
@@ -230,9 +230,9 @@ def parse_seq_rawdata(process_list, seq_path, seq_save_dir, track_file, start_id
 
         print("Processing image data done...")
 
+    pts_3d_all = dict()
+    pts_2d_all = dict()
     if 'lidar' in process_list:
-        pts_3d_all = dict()
-        pts_2d_all = dict()
         print("Processing LiDAR data...")
                 
         datafile = WaymoDataFileReader(seq_path)
@@ -280,9 +280,9 @@ def parse_seq_rawdata(process_list, seq_path, seq_save_dir, track_file, start_id
             pts_2d = np.concatenate(pts_2d, axis=0)
             pts_2d_all[frame_id] = pts_2d
                                                 
-        np.savez_compressed(f'{seq_save_dir}/pointcloud.npz', 
-                            pointcloud=pts_3d_all, 
-                            camera_projection=pts_2d_all)
+        # np.savez_compressed(f'{seq_save_dir}/pointcloud.npz',
+        #                     pointcloud=pts_3d_all,
+        #                     camera_projection=pts_2d_all)
         print("Processing LiDAR data done...")
 
     if 'track' in process_list:
@@ -341,10 +341,10 @@ def parse_seq_rawdata(process_list, seq_path, seq_save_dir, track_file, start_id
                 label_id = object_ids[label.id]
                 if label_id not in bbox_visible_dict:
                     bbox_visible_dict[label_id] = dict()
-                if label_id not in all_obj_transformers:
-                    all_obj_transformers[label_id] = np.array([[-1.,-1.,-1.]]*num_frames)
-                if label_id not in all_obj_rotation_matrixes:
-                    all_obj_rotation_matrixes[label_id] = np.array([np.eye(3).astype(np.float64)]*num_frames)
+                # if label_id not in all_obj_transformers:
+                #     all_obj_transformers[label_id] = np.array([[-1.,-1.,-1.]]*num_frames)
+                # if label_id not in all_obj_rotation_matrixes:
+                #     all_obj_rotation_matrixes[label_id] = np.array([np.eye(3).astype(np.float64)]*num_frames)
                 bbox_visible_dict[label_id][frame_id] = []
 
                 for camera_name in camera_names_dict.keys():
@@ -383,8 +383,8 @@ def parse_seq_rawdata(process_list, seq_path, seq_save_dir, track_file, start_id
                 meta = label.metadata
                 speed = np.linalg.norm([meta.speed_x, meta.speed_y])  
                 lines_info = f"{frame_id} {label_id} {obj_class} {alpha} {height} {width} {length} {tx} {ty} {tz} {heading} {speed} \n"
-                all_obj_transformers[label_id][frame_id] = np.array([tx,ty,tz])
-                all_obj_rotation_matrixes[label_id][frame_id] = rotz_matrix
+                # all_obj_transformers[label_id][frame_id] = np.array([tx,ty,tz])
+                # all_obj_rotation_matrixes[label_id][frame_id] = rotz_matrix
                 track_infos_file.write(lines_info)
                 
             track_vis_img = np.concatenate([
@@ -577,7 +577,7 @@ def parse_seq_rawdata(process_list, seq_path, seq_save_dir, track_file, start_id
 
         print("Saving dynamic mask done...")
 
-    return cam_extrinsics, all_obj_transformers, all_obj_rotation_matrixes
+    return pts_3d_all, pts_2d_all
 
 def main():
     parser = argparse.ArgumentParser()
@@ -620,7 +620,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     # 第一步，把原始waymo转换为notr格式
-    cam_extrinsics, all_obj_transformers, all_obj_rotation_matrixes = parse_seq_rawdata(
+    pts_3d_all, pts_2d_all = parse_seq_rawdata(
         process_list=['pose', 'calib', 'image', 'track', 'dynamic_mask', 'lidar'],
         # process_list=['lidar'],
         seq_path=args.tf_record,
@@ -629,8 +629,8 @@ if __name__ == '__main__':
     )
 
     # 第二步，把notr格式转换成colmap格式，需要调用colmap，并收集场景信息
-    scene_infos = generate_dataparser_outputs(args.output_dir,build_pointcloud=True)
-    scene_infos['extrinsics'] = cam_extrinsics
+    scene_infos = generate_dataparser_outputs(args.output_dir, pts_3d_all, pts_2d_all)
+    # scene_infos['extrinsics'] = cam_extrinsics
     # del scene_infos['exts']
     # del scene_infos['ixts']
     # del scene_infos['poses']
@@ -640,23 +640,23 @@ if __name__ == '__main__':
     # del scene_infos['cams']
     # del scene_infos['frames_idx']
     # del scene_infos['obj_bounds']
-    for static_obj_id in scene_infos['static_object_ids']:
-        if static_obj_id in all_obj_transformers.keys():
-            del all_obj_transformers[static_obj_id]
-        if static_obj_id in all_obj_rotation_matrixes.keys():
-            del all_obj_rotation_matrixes[static_obj_id]
-        if static_obj_id in scene_infos['obj_info'].keys():
-            del scene_infos['obj_info'][static_obj_id]
-    for obj_id in scene_infos['obj_info'].keys():
-        start_frame = scene_infos['obj_info'][obj_id]['start_frame']
-        end_frame = scene_infos['obj_info'][obj_id]['end_frame']
-        if obj_id in all_obj_transformers.keys():
-            all_obj_transformers[obj_id][0:start_frame] = np.array([-1.,-1.,-1.])
-            all_obj_transformers[obj_id][end_frame+1:] = np.array([-1., -1., -1.])
-        if obj_id in all_obj_rotation_matrixes.keys():
-            all_obj_rotation_matrixes[obj_id][0:start_frame] = np.eye(3).astype(np.float64)
-            all_obj_rotation_matrixes[obj_id][end_frame+1:] = np.eye(3).astype(np.float64)
-    scene_infos['all_obj_transformers'] = all_obj_transformers
-    scene_infos['all_obj_rotation_matrixes'] = all_obj_rotation_matrixes
+    # for static_obj_id in scene_infos['static_object_ids']:
+    #     if static_obj_id in all_obj_transformers.keys():
+    #         del all_obj_transformers[static_obj_id]
+    #     if static_obj_id in all_obj_rotation_matrixes.keys():
+    #         del all_obj_rotation_matrixes[static_obj_id]
+    #     if static_obj_id in scene_infos['obj_info'].keys():
+    #         del scene_infos['obj_info'][static_obj_id]
+    # for obj_id in scene_infos['obj_info'].keys():
+    #     start_frame = scene_infos['obj_info'][obj_id]['start_frame']
+    #     end_frame = scene_infos['obj_info'][obj_id]['end_frame']
+    #     if obj_id in all_obj_transformers.keys():
+    #         all_obj_transformers[obj_id][0:start_frame] = np.array([-1.,-1.,-1.])
+    #         all_obj_transformers[obj_id][end_frame+1:] = np.array([-1., -1., -1.])
+    #     if obj_id in all_obj_rotation_matrixes.keys():
+    #         all_obj_rotation_matrixes[obj_id][0:start_frame] = np.eye(3).astype(np.float64)
+    #         all_obj_rotation_matrixes[obj_id][end_frame+1:] = np.eye(3).astype(np.float64)
+    # scene_infos['all_obj_transformers'] = all_obj_transformers
+    # scene_infos['all_obj_rotation_matrixes'] = all_obj_rotation_matrixes
 
     joblib.dump(scene_infos, os.path.join(args.output_dir, 'scene_meta.bin'))

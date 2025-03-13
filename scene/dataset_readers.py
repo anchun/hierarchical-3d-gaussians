@@ -46,6 +46,7 @@ class CameraInfo(NamedTuple):
     is_test: bool
     metadata: dict
     cam_idx: int = 0
+    train_dynamic_objects: bool = True
 
 class SceneInfo(NamedTuple):
     point_cloud: dict
@@ -150,7 +151,7 @@ def name_2_frame_id(name):
     return int(frame_id)
 
 
-def readNOTRCameras(scene_meta, depths_params, images_folder, masks_folder, depths_folder, test_cam_names_list, use_npy_depth=False):
+def readNOTRCameras(scene_meta, depths_params, images_folder, masks_folder, depths_folder, test_cam_names_list, use_npy_depth=False, inference=False):
     num_frames = scene_meta['num_frames']
     exts = scene_meta['exts']
     ixts = scene_meta['ixts']
@@ -159,15 +160,12 @@ def readNOTRCameras(scene_meta, depths_params, images_folder, masks_folder, dept
     image_filenames = scene_meta['new_image_filenames']
     frames, cams = scene_meta['frames'], scene_meta['cams']
     frames_idx = scene_meta['frames_idx']
-    num_frames = scene_meta['num_frames']
     # num_cameras = len(cam_intrinsics)
     # if 'semantics' in scene_meta.keys():
     #     semantics = scene_meta['semantics'].reshape(num_frames, num_cameras).T
     #     scene_meta['semantics'] = semantics
     # else:
     #     semantics = None
-    # cams_timestamps = scene_meta['cams_timestamps'].reshape(num_frames, num_cameras).T
-    # scene_meta['cams_timestamps'] = cams_timestamps
     cams_timestamps = scene_meta['cams_timestamps']
 
     cam_infos = []
@@ -187,7 +185,6 @@ def readNOTRCameras(scene_meta, depths_params, images_folder, masks_folder, dept
         pose = poses[i]
         image_filename = image_filenames[i]
         image_path = os.path.join(images_folder, image_filename)
-        image_name = os.path.basename(image_path).split('.')[0]
         image = Image.open(image_path)
 
         width, height = image.size
@@ -228,7 +225,7 @@ def readNOTRCameras(scene_meta, depths_params, images_folder, masks_folder, dept
             image_path = os.path.join(images_folder, f"{image_filename[:-n_remove]}.png")
             image_name = f"{image_filename[:-n_remove]}.png"
 
-        mask_path = os.path.join(masks_folder, f"{image_filename[:-n_remove]}.png") if masks_folder != "" else ""
+        mask_path = os.path.join(masks_folder, f"{image_filename[:-n_remove]}.jpg") if masks_folder != "" else ""
         depth_path = os.path.join(depths_folder, f"{image_filename[:-n_remove]}.png") if depths_folder != "" else ""
         if use_npy_depth:
             depth_path = ""
@@ -236,10 +233,17 @@ def readNOTRCameras(scene_meta, depths_params, images_folder, masks_folder, dept
         else:
             depth_npy_path = None
 
+        # 每张图像训练两次，因为单独用无mask的动静态一体建模，出来的静态场景，效果比mask建模的静态场景略差。所以其中一次使用静态mask的方式跑一遍
         cam_info = CameraInfo(uid=i, R=R, T=T, FovY=FovY, FovX=FovX, primx=primx, primy=primy, depth_params=depth_params,
                               image_path=image_path, mask_path=mask_path, depth_path=depth_path, depth_npy_path=depth_npy_path, image_name=image_name,
-                              width=width, height=height, is_test=False, metadata=metadata)
-        cam_infos.append(cam_info)
+                              width=width, height=height, is_test=False, metadata=metadata, train_dynamic_objects=False)
+        cam_infos.append(cam_info) # 有mask，只训练静态场景一次
+
+        if not inference:
+            cam_info = CameraInfo(uid=i, R=R, T=T, FovY=FovY, FovX=FovX, primx=primx, primy=primy, depth_params=depth_params,
+                                  image_path=image_path, mask_path='', depth_path=depth_path, depth_npy_path=depth_npy_path, image_name=image_name,
+                                  width=width, height=height, is_test=False, metadata=metadata, train_dynamic_objects=True)
+            cam_infos.append(cam_info) # 无mask，动静态一体训练一次
     for cam in [0, 1, 2, 3, 4]:
         camera_timestamps[cam]['train_timestamps'] = sorted(camera_timestamps[cam]['train_timestamps'])
     scene_meta['camera_timestamps'] = camera_timestamps
@@ -383,7 +387,7 @@ def readColmapSceneInfo(path, images, masks, depths, eval, train_test_exp, llffh
     return scene_info
 
 
-def readNOTRSceneInfo(project_dir, path, images, masks, depths, eval, train_test_exp, llffhold=None, use_npy_depth=False):
+def readNOTRSceneInfo(project_dir, path, images, masks, depths, eval, train_test_exp, llffhold=None, use_npy_depth=False, inference=False):
     """
     scene_meta：表示原始整个大场景的信息，dict类型
     {
@@ -412,33 +416,12 @@ def readNOTRSceneInfo(project_dir, path, images, masks, depths, eval, train_test
         'obj_bounds'：未知
     }
     """
-    try:
-        cameras_extrinsic_file = os.path.join(path, "sparse/0", "images.bin")
-        cameras_intrinsic_file = os.path.join(path, "sparse/0", "cameras.bin")
-        cam_pose_info_in_colmap = read_extrinsics_binary(cameras_extrinsic_file)
-        cam_intrinsics = read_intrinsics_binary(cameras_intrinsic_file)
-    except:
-        cameras_extrinsic_file = os.path.join(path, "sparse/0", "images.txt")
-        cameras_intrinsic_file = os.path.join(path, "sparse/0", "cameras.txt")
-        cam_pose_info_in_colmap = read_extrinsics_text(cameras_extrinsic_file)
-        cam_intrinsics = read_intrinsics_text(cameras_intrinsic_file)
-
     depth_params_file = os.path.join(path, "sparse/0", "depth_params.json")
     ## if depth_params_file isnt there AND depths file is here -> throw error
     depths_params = None
     scene_meta = joblib.load(os.path.join(project_dir, "scene_meta.bin"))
     # cam_extrinsics = scene_meta['extrinsics'][:len(cam_intrinsics.keys())]
 
-    num_frames = scene_meta['num_frames']
-    num_cameras = len(cam_intrinsics)
-    ego_poses = scene_meta['poses']
-    if 'semantics' in scene_meta.keys():
-        semantics = scene_meta['semantics'].reshape(num_frames, num_cameras).T
-        scene_meta['semantics'] = semantics
-    else:
-        semantics = None
-    # cams_timestamps = scene_meta['cams_timestamps'].reshape(num_frames, num_cameras).T
-    # scene_meta['cams_timestamps'] = cams_timestamps
     if depths != "" and not use_npy_depth:
         try:
             with open(depth_params_file, "r") as f:
@@ -484,7 +467,8 @@ def readNOTRSceneInfo(project_dir, path, images, masks, depths, eval, train_test
         depths_params=depths_params,
         images_folder=os.path.join(path, reading_dir), masks_folder=masks_reading_dir,
         depths_folder=os.path.join(path, depths) if depths != "" else "", test_cam_names_list=[],
-        use_npy_depth=use_npy_depth)
+        use_npy_depth=use_npy_depth,
+        inference=inference)
     cam_infos = sorted(cam_infos_unsorted.copy(), key=lambda x: x.image_name)
 
     train_cam_infos = [c for c in cam_infos if train_test_exp or not c.is_test]

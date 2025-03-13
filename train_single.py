@@ -108,12 +108,16 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
                 # Render
                 if (iteration - 1) == debug_from:
                     pipe.debug = True
+                if viewpoint_cam.train_dynamic_objects:
+                    gaussians.set_visible_dynamic_object_names('all')
+                else:
+                    gaussians.set_visible_dynamic_object_names('none')
                 render_pkg = render(viewpoint_cam, gaussians, pipe, background, indices = indices, use_trained_exp=True)
                 image, invDepth, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["depth"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
 
                 # Loss
                 gt_image = viewpoint_cam.original_image.cuda()
-                if viewpoint_cam.alpha_mask is not None:
+                if viewpoint_cam.alpha_mask is not None: # viewpoint_cam.train_dynamic_objects为True时，viewpoint_cam.alpha_mask其实为全1张量
                     alpha_mask = viewpoint_cam.alpha_mask.cuda()
                     image *= alpha_mask
                 

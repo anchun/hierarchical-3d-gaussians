@@ -26,7 +26,7 @@ class Camera(nn.Module):
                  image_name, uid,
                  trans=np.array([0.0, 0.0, 0.0]), scale=1.0, data_device = "cuda",
                  train_test_exp=False, is_test_dataset=False, is_test_view=False,
-                 metadata=None, semantic=None
+                 metadata=None, semantic=None, train_dynamic_objects=True
                  ):
         super(Camera, self).__init__()
 
@@ -39,6 +39,7 @@ class Camera(nn.Module):
         self.image_name = image_name
         self.metadata = metadata
         self.semantic = semantic
+        self.train_dynamic_objects = train_dynamic_objects
 
         try:
             self.data_device = torch.device(data_device)
@@ -50,7 +51,7 @@ class Camera(nn.Module):
         resized_image_rgb = PILtoTorch(image, resolution)
         gt_image = resized_image_rgb[:3, ...]
         if alpha_mask is not None:
-            self.alpha_mask = PILtoTorch(alpha_mask, resolution)
+            self.alpha_mask = PILtoTorch(alpha_mask, resolution).to(self.data_device)
         elif resized_image_rgb.shape[0] == 4:
             self.alpha_mask = resized_image_rgb[3:4, ...].to(self.data_device)
         else: 

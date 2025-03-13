@@ -31,14 +31,14 @@ def run_colmap_waymo(input_dir, output_dir, result):
     for unqiue_cam in unique_cams:
         train_images_dir = os.path.join(colmap_dir, 'images', f'cam_{unqiue_cam}')
         test_images_dir = os.path.join(colmap_dir, 'test_imgs', f'cam_{unqiue_cam}')
-        mask_images_dir = os.path.join(colmap_dir, 'mask', f'cam_{unqiue_cam}')
+        mask_images_dir = os.path.join(colmap_dir, 'masks', f'cam_{unqiue_cam}')
         os.makedirs(train_images_dir, exist_ok=True)
         os.makedirs(test_images_dir, exist_ok=True)
         os.makedirs(mask_images_dir, exist_ok=True)
     
     train_images_dir = os.path.join(colmap_dir, 'images')
     test_images_dir = os.path.join(colmap_dir, 'test_imgs')
-    mask_images_dir = os.path.join(colmap_dir, 'mask')
+    mask_images_dir = os.path.join(colmap_dir, 'masks')
     
     image_filenames = result['image_filenames']
     c2ws = result['c2ws']
@@ -70,9 +70,9 @@ def run_colmap_waymo(input_dir, output_dir, result):
     # copy mask
     for i, image_filename in enumerate(mask_image_filenames):
         basename = os.path.basename(image_filename)
-        mask_images_dir = os.path.join(colmap_dir, 'mask')
+        mask_images_dir = os.path.join(colmap_dir, 'masks')
         new_image_filename = os.path.join(mask_images_dir, convert_filename(basename))
-        new_mask_filename = f'{new_image_filename}.jpg'
+        new_mask_filename = f'{new_image_filename}'
         if not os.path.exists(new_mask_filename):
             shutil.copyfile(image_filename, new_mask_filename)
             mask = cv2.imread(new_mask_filename)

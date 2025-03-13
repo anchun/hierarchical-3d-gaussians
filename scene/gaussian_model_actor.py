@@ -542,12 +542,13 @@ class GaussianModelActor():
                 reset_tensor = tensors_dict[group['name']]
 
                 stored_state = self.optimizer.state.get(group['params'][0], None)
-                stored_state["exp_avg"] = torch.zeros_like(reset_tensor)
-                stored_state["exp_avg_sq"] = torch.zeros_like(reset_tensor)
-    
-                del self.optimizer.state[group['params'][0]]
-                group["params"][0] = nn.Parameter(reset_tensor.requires_grad_(True))
-                self.optimizer.state[group['params'][0]] = stored_state
+                if stored_state is not None:
+                    stored_state["exp_avg"] = torch.zeros_like(reset_tensor)
+                    stored_state["exp_avg_sq"] = torch.zeros_like(reset_tensor)
+
+                    del self.optimizer.state[group['params'][0]]
+                    group["params"][0] = nn.Parameter(reset_tensor.requires_grad_(True))
+                    self.optimizer.state[group['params'][0]] = stored_state
     
                 optimizable_tensors[group["name"]] = group["params"][0]
         return optimizable_tensors

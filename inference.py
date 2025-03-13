@@ -36,9 +36,9 @@ if __name__ == "__main__":
 
     with torch.no_grad():
         scene_info = sceneLoadTypeCallbacks["NOTR"](args.input_dir, os.path.join(args.input_dir, "camera_calibration", "aligned"),
-                                                    os.path.join(args.input_dir, "camera_calibration", 'rectified', 'images'), '',
+                                                    'camera_calibration/rectifie/images', '',
                                                     '', None, None, None,
-                                                    None)
+                                                    None, True)
         gaussians = GaussianModel(model_params.sh_degree, scene_info.scene_meta,
                                   num_camera_poses=len(scene_info.train_cameras),
                                   use_camera_pose_correction=False,
@@ -54,12 +54,12 @@ if __name__ == "__main__":
         visualizer.make_groups({'rgb_gt', 'rgb_inferenced', 'remove_some_vehicles', 'remove_some_and_replace_one'})
         for idx, camera in enumerate(tqdm(cameras, desc="Rendering...")):
             rgb_gt = (camera.original_image[:3].detach().cpu().numpy().transpose(1, 2, 0) * 255).astype(np.uint8)
-            gaussians.set_inference_visible_models([])
+            gaussians.set_visible_dynamic_object_names('all')
             gaussians.replace_inference_models({})
             render_result = render(camera, gaussians, pipeline_params, background, indices=None, use_trained_exp=False)
             rgb_inferenced = (render_result['render'].detach().cpu().numpy().transpose(1, 2, 0) * 255).astype(np.uint8)
 
-            gaussians.set_inference_visible_models(['obj_010', 'obj_112', 'obj_106', 'obj_030'])
+            gaussians.set_visible_dynamic_object_names(['obj_010', 'obj_112', 'obj_106', 'obj_030'])
             render_result = render(camera, gaussians, pipeline_params, background, indices=None, use_trained_exp=False)
             remove_some_vehicles = (render_result['render'].detach().cpu().numpy().transpose(1, 2, 0) * 255).astype(np.uint8)
 
@@ -73,8 +73,8 @@ if __name__ == "__main__":
                 'remove_some_and_replace_one': remove_some_and_replace_one,
             })
 
-        # TODO layout define
         output_path = os.path.join(args.output_dir, 'combined_video.mp4')
+        os.makedirs(args.output_dir, exist_ok=True)
         sorted_names = ['rgb_gt', 'rgb_inferenced', 'remove_some_vehicles', 'remove_some_and_replace_one']
         layout = {
             "rgb_gt": (0, 0),
@@ -84,7 +84,3 @@ if __name__ == "__main__":
         }
         visualizer.merge_rendered_groups_as_one_mp4(output_path, sorted_names, layout)
 
-    # video_paths = [r'D:\Projects\3dgs_datas\output\notr_082_h3dgs_dynamic\inference/rgb_gt.mp4'
-    #                r'D:\Projects\3dgs_datas\output\notr_082_h3dgs_dynamic\inference/rgb_infenence.mp4'
-    #                r'D:\Projects\3dgs_datas\output\notr_082_h3dgs_dynamic\inference/rgb_removed.mp4']
-    # output_path = r"D:\Projects\3dgs_datas\output\notr_082_h3dgs_dynamic\inference/merged_video.mp4"
