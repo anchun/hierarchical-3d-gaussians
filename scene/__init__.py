@@ -73,24 +73,6 @@ class Scene:
             print("Making Test Dataset")
             self.test_cameras[resolution_scale] = CameraDataset(scene_info.test_cameras, args, resolution_scale, True)
 
-        if self.loaded_iter:
-            self.gaussians.load_ply(os.path.join(self.model_path,
-                                                           "point_cloud",
-                                                           "iteration_" + str(self.loaded_iter)))
-        elif args.pretrained:
-            self.gaussians.create_from_pt(args.pretrained, self.cameras_extent)
-        elif create_from_hier:
-            self.gaussians.create_from_hier(args.hierarchy, self.cameras_extent, args.scaffold_file)
-        else:
-            self.gaussians.create_from_pcd(scene_info.point_cloud, 
-                                           scene_info.train_cameras,
-                                           self.cameras_extent, 
-                                           args.skybox_num,
-                                           args.scaffold_file,
-                                           args.bounds_file,
-                                           args.skybox_locked)
-
-
     def save(self, iteration):
         point_cloud_path = os.path.join(self.model_path, "point_cloud/iteration_{}".format(iteration))
         mkdir_p(point_cloud_path)
@@ -103,6 +85,9 @@ class Scene:
                 self.gaussians.save_pt(point_cloud_path)
             else:
                 self.gaussians.save_ply(point_cloud_path)
+            state_dict = gaussians.capture(only_pose_weights=True)
+            state_dict['iteration'] = iteration
+            torch.save(state_dict, os.path.join(point_cloud_path, "addition_weights.pth"))
 
             exposure_dict = {
                 image_name: self.gaussians.get_exposure_from_name(image_name).detach().cpu().numpy().tolist()

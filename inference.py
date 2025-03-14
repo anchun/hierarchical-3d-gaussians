@@ -11,6 +11,7 @@ from scene.dataset_readers import sceneLoadTypeCallbacks
 from arguments import ModelParams, PipelineParams, OptimizationParams
 from visualizers.scene_visualizer import SceneVisualizer
 from gaussian_renderer import render
+from utils.system_utils import searchForMaxIteration
 
 
 if __name__ == "__main__":
@@ -35,15 +36,22 @@ if __name__ == "__main__":
     print("Rendering " + args.model_path)
 
     with torch.no_grad():
+        model_path = os.path.join(args.input_dir, 'output', 'trained_chunks', '0_0')
+        if args.load_iteration == -1:
+            args.load_iteration = searchForMaxIteration(os.path.join(model_path, "point_cloud"))
+        chkp_path = os.path.join(point_cloud_path, 'point_cloud', 'addition_weights.pth')
+        print(f'Loading model, iter: {args.load_iteration}')
+        state_dict = torch.load(chkp_path)
+        saved_ply_folder = os.path.join(model_path, "point_cloud", "iteration_" + str(args.load_iteration))
         scene_info = sceneLoadTypeCallbacks["NOTR"](args.input_dir, os.path.join(args.input_dir, "camera_calibration", "aligned"),
                                                     'camera_calibration/rectifie/images', '',
                                                     '', None, None, None,
                                                     None, True)
-        gaussians = GaussianModel(model_params.sh_degree, scene_info.scene_meta,
+        gaussians = GaussianModel(model_params.sh_degree, scene_info, scene_info.scene_meta,
                                   num_camera_poses=len(scene_info.train_cameras),
                                   use_camera_pose_correction=False,
-                                  num_classes=0)
-        scene = Scene(model_params, scene_info, gaussians, load_iteration=args.load_iteration)
+                                  num_classes=0, state_dict=state_dict, saved_ply_folder=saved_ply_folder)
+        scene = Scene(model_params, scene_info, gaussians)
         visualizer = SceneVisualizer(args.output_dir)
 
         cameras = scene.getTrainCameras()

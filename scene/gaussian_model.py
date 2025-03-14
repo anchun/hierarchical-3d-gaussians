@@ -72,11 +72,11 @@ class GaussianModel:
         else:
             self.pose_correction = None
 
-    def __init__(self, sh_degree : int, metadata: dict, num_camera_poses: int, num_classes: int=0, use_camera_pose_correction: bool=False):
+    def __init__(self, args, scene_info, metadata: dict, num_camera_poses: int, num_classes: int=0, use_camera_pose_correction: bool=False, state_dict=None, saved_ply_folder=None):
         self.num_classes = num_classes
         self.use_camera_pose_correction = use_camera_pose_correction
         self.active_sh_degree = 0
-        self.max_sh_degree = sh_degree  
+        self.max_sh_degree = args.sh_degree
         self._xyz = torch.empty(0)
         self._features_dc = torch.empty(0)
         self._features_rest = torch.empty(0)
@@ -104,19 +104,79 @@ class GaussianModel:
         self.visible_dynamic_object_names = []
         self.inference_visible_replacements = {}
         self.setup_functions()
-
+        if state_dict is not None:
+            # 从checkpoint恢复训练时，只需要restore全部状态，目前3dgs项目的存储分为ply和其他参数，比较混乱
+            self.restore(state_dict, only_load_pose_weights)
+            if saved_ply_folder is not None:
+                # inference时，从state_dict加载actor_pose等参数，并且从ply中加载点云
+                iteration = state_dict['iteration']
+                self.load_ply(saved_ply_folder)
+        # elif args.pretrained:
+        #     self.gaussians.create_from_pt(args.pretrained, self.cameras_extent)
+        # elif create_from_hier:
+        #     self.gaussians.create_from_hier(args.hierarchy, self.cameras_extent, args.scaffold_file)
+        else:
+            # 初始化训练时，加载初始点云
+            self.create_from_pcd(scene_info.point_cloud,
+                                           scene_info.train_cameras,
+                                           scene_info.nerf_normalization["radius"],
+                                           args.skybox_num,
+                                           args.scaffold_file,
+                                           args.bounds_file,
+                                           args.skybox_locked)
 
     def disable_dynamic_objects(self):
         self.is_dynamic_object_enabled = False
 
-
     def enable_dynamic_objects(self):
         self.is_dynamic_object_enabled = True
 
+    def capture(self, only_pose_weights=False):
+        state_dict = {}
+        if only_pose_weights:
+            if self.actor_pose is not None:
+                state_dict['actor_pose'] = self.actor_pose.save_state_dict()
 
-    def capture(self):
-        return (
-            self.active_sh_degree,
+            if self.pose_correction is not None:
+                state_dict['pose_correction'] = self.pose_correction.save_state_dict()
+        else:
+            state_dict['bkgd'] = (
+                        self.active_sh_degree,
+                        self._xyz,
+                        self._features_dc,
+                        self._features_rest,
+                        self._scaling,
+                        self._rotation,
+                        self._opacity,
+                        self.max_radii2D,
+                        self.xyz_gradient_accum,
+                        self.denom,
+                        self.optimizer.state_dict(),
+                        self.spatial_lr_scale,
+                    )
+            for dynamic_obj in self.obj_list:
+                model_name = dynamic_obj.get_modelname
+                state_dict[model_name] = dynamic_obj.save_state_dict()
+
+            if self.actor_pose is not None:
+                state_dict['actor_pose'] = self.actor_pose.save_state_dict()
+
+            if self.pose_correction is not None:
+                state_dict['pose_correction'] = self.pose_correction.save_state_dict()
+
+            state_dict['bkgd_optimizer'] = self.optimizer.state_dict()
+            state_dict['bkgd_exposure_optimizer'] = self.exposure_optimizer.state_dict()
+        return state_dict
+    
+    def restore(self, state_dict, training_args=None, only_pose_weights=False):
+        if only_pose_weights:
+            if self.actor_pose is not None:
+                self.actor_pose.load_state_dict(state_dict['actor_pose'])
+
+            if self.pose_correction is not None:
+                self.pose_correction.load_state_dict(state_dict['pose_correction'])
+        else:
+            (self.active_sh_degree,
             self._xyz,
             self._features_dc,
             self._features_rest,
@@ -126,27 +186,27 @@ class GaussianModel:
             self.max_radii2D,
             self.xyz_gradient_accum,
             self.denom,
-            self.optimizer.state_dict(),
-            self.spatial_lr_scale,
-        )
-    
-    def restore(self, model_args, training_args):
-        (self.active_sh_degree, 
-        self._xyz, 
-        self._features_dc, 
-        self._features_rest,
-        self._scaling, 
-        self._rotation, 
-        self._opacity,
-        self.max_radii2D, 
-        xyz_gradient_accum, 
-        denom,
-        opt_dict, 
-        self.spatial_lr_scale) = model_args
-        self.training_setup(training_args)
-        self.xyz_gradient_accum = xyz_gradient_accum
-        self.denom = denom
-        self.optimizer.load_state_dict(opt_dict)
+            opt_dict,
+            self.spatial_lr_scale) = state_dict['bkgd']
+            if training_args is not None:
+                self.training_setup(training_args)
+            else:
+                pass # inference
+
+            for dynamic_obj in self.obj_list:
+                dynamic_obj.restore(state_dict[dynamic_obj.get_modelname])
+
+            if self.actor_pose is not None:
+                self.actor_pose.load_state_dict(state_dict['actor_pose'])
+
+            if self.pose_correction is not None:
+                self.pose_correction.load_state_dict(state_dict['pose_correction'])
+
+    def restore_training_status(self, state_dict):
+        self.optimizer.load_state_dict(state_dict['bkgd_optimizer'])
+        self.exposure_optimizer.load_state_dict(state_dict['bkgd_exposure_optimizer'])
+        for dynamic_obj in self.obj_list:
+            dynamic_obj.restore_training_status(state_dict[dynamic_obj.get_modelname])
 
     def set_visible_dynamic_object_names(self, visible_model_names):
         self.visible_dynamic_object_names = visible_model_names

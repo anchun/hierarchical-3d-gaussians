@@ -27,6 +27,7 @@ from arguments import ModelParams, PipelineParams, OptimizationParams
 def direct_collate(x):
     return x
 
+
 def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, checkpoint, debug_from):
     first_iter = 0
     prepare_output_and_logger(dataset)
@@ -36,12 +37,18 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
         assert False, "Could not recognize scene type!"
 
     print('==== opt.use_camera_pose_correction:', opt.use_camera_pose_correction)
-    gaussians = GaussianModel(dataset.sh_degree, scene_info.scene_meta, num_camera_poses=len(scene_info.train_cameras),use_camera_pose_correction=opt.use_camera_pose_correction, num_classes=opt.num_semantic_class)
+    if checkpoint:
+        chkp_path = os.path.join(opt.model_path, "chkp_" + str(checkpoint) + ".pth")
+        print(f'Loading checkpoint iter {checkpoint} from {chkp_path}')
+        state_dict = torch.load(chkp_path)
+        first_iter = state_dict['iteration']
+    else:
+        state_dict = None
+    gaussians = GaussianModel(dataset, scene_info, scene_info.scene_meta, num_camera_poses=len(scene_info.train_cameras),use_camera_pose_correction=opt.use_camera_pose_correction, num_classes=opt.num_semantic_class, state_dict=state_dict)
     scene = Scene(dataset, scene_info, gaussians)
     gaussians.training_setup(opt)
-    if checkpoint:
-        (model_params, first_iter) = torch.load(checkpoint)
-        gaussians.restore(model_params, opt)
+    if state_dict is not None:
+        gaussians.restore_training_status(state_dict)
 
     bg_color = [1, 1, 1] if dataset.white_background else [0, 0, 0]
     background = torch.tensor(bg_color, dtype=torch.float32, device="cuda")
@@ -238,10 +245,12 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
                             if gaussians.scaffold_points is not None:
                                 violators[:gaussians.scaffold_points] = False
                             gaussians._scaling[violators] = gaussians.scaling_inverse_activation(gaussians.get_scaling[violators] * 0.8)
-                        
+
                     if (iteration in checkpoint_iterations):
                         print("\n[ITER {}] Saving Checkpoint".format(iteration))
-                        torch.save((gaussians.capture(), iteration), scene.model_path + "/chkpnt" + str(iteration) + ".pth")
+                        state_dict = gaussians.capture()
+                        state_dict['iteration'] = iteration
+                        torch.save(state_dict, os.path.join(scene.model_path, "chkp_" + str(iteration) + ".pth"))
 
                     iteration += 1
 
@@ -276,6 +285,7 @@ if __name__ == "__main__":
     parser.add_argument("--start_checkpoint", type=str, default = None)
     args = parser.parse_args(sys.argv[1:])
     args.save_iterations.append(args.iterations)
+    args.checkpoint_iterations.append(args.iterations)
     # default densify for half iterations.
     args.densify_until_iter = args.iterations / 2
     print("Iterations: ", args.iterations, "Densify iterations: ", args.densify_until_iter)

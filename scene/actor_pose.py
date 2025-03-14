@@ -51,18 +51,19 @@ class ActorPose(nn.Module):
         for object_id in self.obj_info.keys():
             self.obj_info[object_id]['track_idx'] = torch.argwhere(self.track_ids == object_id)
 
-    def save_state_dict(self, is_final):
+        self.opt_track = True # TODO: from config
+
+    def save_state_dict(self):
         state_dict = dict()
         if self.opt_track:
             state_dict['params'] = self.state_dict()
-        if not is_final:
             state_dict['optimizer'] = self.optimizer.state_dict()
         return state_dict
         
     def load_state_dict(self, state_dict):
         if self.opt_track:
             super().load_state_dict(state_dict['params'])
-            if cfg.mode == 'train' and 'optimizer' in state_dict:
+            if False:# cfg.mode == 'train' and 'optimizer' in state_dict: TODO from config
                 self.optimizer.load_state_dict(state_dict['optimizer'])
 
     def training_setup(self):

@@ -368,7 +368,7 @@ class GaussianModelActor():
 
         self.active_sh_degree = self.max_sh_degree
 
-    def load_state_dict(self, state_dict):
+    def restore(self, state_dict):
         self._xyz = state_dict['xyz']
         self._features_dc = state_dict['feature_dc']
         self._features_rest = state_dict['feature_rest']
@@ -377,22 +377,21 @@ class GaussianModelActor():
         self._opacity = state_dict['opacity']
         self._semantic = state_dict['semantic']
 
-        if cfg.mode == 'train':
-            self.training_setup()
-            if 'spatial_lr_scale' in state_dict:
-                self.spatial_lr_scale = state_dict['spatial_lr_scale']
-            if 'denom' in state_dict:
-                self.denom = state_dict['denom']
-            if 'max_radii2D' in state_dict:
-                self.max_radii2D = state_dict['max_radii2D']
-            if 'xyz_gradient_accum' in state_dict:
-                self.xyz_gradient_accum = state_dict['xyz_gradient_accum']
-            if 'active_sh_degree' in state_dict:
-                self.active_sh_degree = state_dict['active_sh_degree']
-            if 'optimizer' in state_dict:
-                self.optimizer.load_state_dict(state_dict['optimizer'])
+    def restore_training_status(self, state_dict):
+        if 'spatial_lr_scale' in state_dict:
+            self.spatial_lr_scale = state_dict['spatial_lr_scale']
+        if 'denom' in state_dict:
+            self.denom = state_dict['denom']
+        if 'max_radii2D' in state_dict:
+            self.max_radii2D = state_dict['max_radii2D']
+        if 'xyz_gradient_accum' in state_dict:
+            self.xyz_gradient_accum = state_dict['xyz_gradient_accum']
+        if 'active_sh_degree' in state_dict:
+            self.active_sh_degree = state_dict['active_sh_degree']
+        if 'optimizer' in state_dict:
+            self.optimizer.load_state_dict(state_dict['optimizer'])
 
-    def state_dict(self, is_final=False):
+    def save_state_dict(self):
         state_dict = {
             'xyz': self._xyz,
             'feature_dc': self._features_dc,
@@ -401,20 +400,13 @@ class GaussianModelActor():
             'rotation': self._rotation,
             'opacity': self._opacity,
             'semantic': self._semantic,
+            'spatial_lr_scale': self.spatial_lr_scale,
+            'denom': self.denom,
+            'max_radii2D': self.max_radii2D,
+            'xyz_gradient_accum': self.xyz_gradient_accum,
+            'active_sh_degree': self.active_sh_degree,
+            'optimizer': self.optimizer.state_dict(),
         }
-
-        if not is_final:
-            state_dict_extra = {
-                'spatial_lr_scale': self.spatial_lr_scale,
-                'denom': self.denom,
-                'max_radii2D': self.max_radii2D,
-                'xyz_gradient_accum': self.xyz_gradient_accum,
-                'active_sh_degree': self.active_sh_degree,
-                'optimizer': self.optimizer.state_dict(),
-            }
-
-            state_dict.update(state_dict_extra)
-
         return state_dict
 
     def training_setup(self, training_args):

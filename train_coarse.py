@@ -34,12 +34,25 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
     else:
         assert False, "Could not recognize scene type!"
 
-    gaussians = GaussianModel(1, scene_info.scene_meta, num_camera_poses=len(scene_info.train_cameras))
+    # gaussians = GaussianModel(1, scene_info.scene_meta, num_camera_poses=len(scene_info.train_cameras))
+    # scene = Scene(dataset, scene_info, gaussians)
+    # gaussians.training_setup(opt)
+    # if checkpoint:
+    #     (model_params, first_iter) = torch.load(checkpoint)
+    #     gaussians.restore(model_params, opt)
+    if checkpoint:
+        chkp_path = os.path.join(opt.model_path, "chkp_" + str(checkpoint) + ".pth")
+        print(f'Loading checkpoint iter {checkpoint} from {chkp_path}')
+        state_dict = torch.load(chkp_path)
+        first_iter = state_dict['iteration']
+    else:
+        state_dict = None
+    dataset.sh_degree = 1
+    gaussians = GaussianModel(dataset, scene_info, scene_info.scene_meta, num_camera_poses=len(scene_info.train_cameras), state_dict=state_dict)
     scene = Scene(dataset, scene_info, gaussians)
     gaussians.training_setup(opt)
-    if checkpoint:
-        (model_params, first_iter) = torch.load(checkpoint)
-        gaussians.restore(model_params, opt)
+    if state_dict is not None:
+        gaussians.restore_training_status(state_dict)
 
     bg_color = [1, 1, 1] if dataset.white_background else [0, 0, 0]
     background = torch.tensor(bg_color, dtype=torch.float32, device="cuda")
