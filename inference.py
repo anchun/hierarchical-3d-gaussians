@@ -39,15 +39,15 @@ if __name__ == "__main__":
         model_path = os.path.join(args.input_dir, 'output', 'trained_chunks', '0_0')
         if args.load_iteration == -1:
             args.load_iteration = searchForMaxIteration(os.path.join(model_path, "point_cloud"))
-        chkp_path = os.path.join(point_cloud_path, 'point_cloud', 'addition_weights.pth')
+        saved_ply_folder = os.path.join(model_path, "point_cloud", "iteration_" + str(args.load_iteration))
+        chkp_path = os.path.join(saved_ply_folder, 'addition_weights.pth')
         print(f'Loading model, iter: {args.load_iteration}')
         state_dict = torch.load(chkp_path)
-        saved_ply_folder = os.path.join(model_path, "point_cloud", "iteration_" + str(args.load_iteration))
         scene_info = sceneLoadTypeCallbacks["NOTR"](args.input_dir, os.path.join(args.input_dir, "camera_calibration", "aligned"),
-                                                    'camera_calibration/rectifie/images', '',
+                                                    '../rectified/images', '',
                                                     '', None, None, None,
                                                     None, True)
-        gaussians = GaussianModel(model_params.sh_degree, scene_info, scene_info.scene_meta,
+        gaussians = GaussianModel(model_params, scene_info, scene_info.scene_meta,
                                   num_camera_poses=len(scene_info.train_cameras),
                                   use_camera_pose_correction=False,
                                   num_classes=0, state_dict=state_dict, saved_ply_folder=saved_ply_folder)
@@ -67,11 +67,11 @@ if __name__ == "__main__":
             render_result = render(camera, gaussians, pipeline_params, background, indices=None, use_trained_exp=False)
             rgb_inferenced = (render_result['render'].detach().cpu().numpy().transpose(1, 2, 0) * 255).astype(np.uint8)
 
-            gaussians.set_visible_dynamic_object_names(['obj_010', 'obj_112', 'obj_106', 'obj_030'])
+            gaussians.set_visible_dynamic_object_names(['obj_010', 'obj_24', 'obj_27'])
             render_result = render(camera, gaussians, pipeline_params, background, indices=None, use_trained_exp=False)
             remove_some_vehicles = (render_result['render'].detach().cpu().numpy().transpose(1, 2, 0) * 255).astype(np.uint8)
 
-            gaussians.replace_inference_models({'obj_010': 'obj_006'})
+            gaussians.replace_inference_models({'obj_010': 'obj_047'})
             render_result = render(camera, gaussians, pipeline_params, background, indices=None, use_trained_exp=False)
             remove_some_and_replace_one = (render_result['render'].detach().cpu().numpy().transpose(1, 2, 0) * 255).astype(np.uint8)
             visualizer.append_one_frame({

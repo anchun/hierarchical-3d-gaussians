@@ -18,6 +18,7 @@ from scene.gaussian_model import GaussianModel
 from arguments import ModelParams
 from utils.camera_utils import camera_to_JSON, CameraDataset
 from utils.system_utils import mkdir_p
+import torch
 
 class Scene:
 
@@ -85,7 +86,7 @@ class Scene:
                 self.gaussians.save_pt(point_cloud_path)
             else:
                 self.gaussians.save_ply(point_cloud_path)
-            state_dict = gaussians.capture(only_pose_weights=True)
+            state_dict = self.gaussians.capture(only_pose_weights=True)
             state_dict['iteration'] = iteration
             torch.save(state_dict, os.path.join(point_cloud_path, "addition_weights.pth"))
 

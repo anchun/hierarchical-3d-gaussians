@@ -105,8 +105,11 @@ class GaussianModel:
         self.inference_visible_replacements = {}
         self.setup_functions()
         if state_dict is not None:
-            # 从checkpoint恢复训练时，只需要restore全部状态，目前3dgs项目的存储分为ply和其他参数，比较混乱
-            self.restore(state_dict, only_load_pose_weights)
+            # 从checkpoint恢复训练时，需要restore全部状态
+            # inference时，仅从state_dict加载actor_pose等参数，并且从ply中加载点云
+            # 目前3dgs项目的存储分为ply和其他参数，比较混乱
+            only_load_pose_weights = saved_ply_folder is not None
+            self.restore(state_dict, training_args=None, only_pose_weights=only_load_pose_weights)
             if saved_ply_folder is not None:
                 # inference时，从state_dict加载actor_pose等参数，并且从ply中加载点云
                 iteration = state_dict['iteration']
