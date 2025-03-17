@@ -14,10 +14,31 @@ from gaussian_renderer import render
 from utils.system_utils import searchForMaxIteration
 
 
+def parse_visible_obj_names(visible_obj_ids):
+    if visible_obj_ids in ['all', 'none']:
+        return visible_obj_ids
+    ids = visible_obj_ids.split(',')
+    return ['obj_' + id for id in ids]
+
+
+def parse_visible_obj_replacements(visible_obj_replacements):
+    if visible_obj_replacements == '' or visible_obj_replacements is None:
+        return {}
+    replacements = {}
+    for o1_o2 in visible_obj_replacements.split(','):
+        splited = o1_o2.split(':')
+        objname1 = 'obj_' + splited[0]
+        objname2 = 'obj_' + splited[1]
+        replacements[objname1] = objname2
+    return replacements
+
+
 if __name__ == "__main__":
     parser = ArgumentParser(description="Inference script parameters")
     parser.add_argument('--input_dir', type=str)
     parser.add_argument('--output_dir', type=str)
+    parser.add_argument('--visible_obj_ids', type=str, default='')
+    parser.add_argument('--visible_obj_replacements', type=str, default='')
     parser.add_argument('--load_iteration', type=int, default=-1)
     args = parser.parse_args(sys.argv[1:])
     args.source_path = ''
@@ -60,6 +81,8 @@ if __name__ == "__main__":
 
         background = torch.tensor([1, 1, 1], dtype=torch.float32, device="cuda")
         visualizer.make_groups({'rgb_gt', 'rgb_inferenced', 'remove_some_vehicles', 'remove_some_and_replace_one'})
+        visible_obj_names = parse_visible_obj_names(args.visible_obj_ids)
+        replacements = parse_visible_obj_replacements(args.visible_obj_replacements)
         for idx, camera in enumerate(tqdm(cameras, desc="Rendering...")):
             rgb_gt = (camera.original_image[:3].detach().cpu().numpy().transpose(1, 2, 0) * 255).astype(np.uint8)
             gaussians.set_visible_dynamic_object_names('all')
@@ -67,11 +90,11 @@ if __name__ == "__main__":
             render_result = render(camera, gaussians, pipeline_params, background, indices=None, use_trained_exp=False)
             rgb_inferenced = (render_result['render'].detach().cpu().numpy().transpose(1, 2, 0) * 255).astype(np.uint8)
 
-            gaussians.set_visible_dynamic_object_names(['obj_010', 'obj_24', 'obj_27'])
+            gaussians.set_visible_dynamic_object_names(visible_obj_names)
             render_result = render(camera, gaussians, pipeline_params, background, indices=None, use_trained_exp=False)
             remove_some_vehicles = (render_result['render'].detach().cpu().numpy().transpose(1, 2, 0) * 255).astype(np.uint8)
 
-            gaussians.replace_inference_models({'obj_010': 'obj_047'})
+            gaussians.replace_inference_models(replacements)
             render_result = render(camera, gaussians, pipeline_params, background, indices=None, use_trained_exp=False)
             remove_some_and_replace_one = (render_result['render'].detach().cpu().numpy().transpose(1, 2, 0) * 255).astype(np.uint8)
             visualizer.append_one_frame({

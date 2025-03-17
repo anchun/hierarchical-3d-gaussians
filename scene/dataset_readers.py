@@ -234,16 +234,20 @@ def readNOTRCameras(scene_meta, depths_params, images_folder, masks_folder, dept
             depth_npy_path = None
 
         # 每张图像训练两次，因为单独用无mask的动静态一体建模，出来的静态场景，效果比mask建模的静态场景略差。所以其中一次使用静态mask的方式跑一遍
+        # 有mask，只训练静态场景一次
         cam_info = CameraInfo(uid=i, R=R, T=T, FovY=FovY, FovX=FovX, primx=primx, primy=primy, depth_params=depth_params,
                               image_path=image_path, mask_path=mask_path, depth_path=depth_path, depth_npy_path=depth_npy_path, image_name=image_name,
                               width=width, height=height, is_test=False, metadata=metadata, train_dynamic_objects=False)
-        cam_infos.append(cam_info) # 有mask，只训练静态场景一次
+        cam_infos.append(cam_info)
 
+        # 无mask，动静态一体训练一次
+        # TODO: deformable的物体应该只用mask训练，不能进行动态建模
+        # 即：训练集应该有两张mask图像，一张mask所有动态对象，一张只mask deformable的物体
         if not inference:
             cam_info = CameraInfo(uid=i, R=R, T=T, FovY=FovY, FovX=FovX, primx=primx, primy=primy, depth_params=depth_params,
                                   image_path=image_path, mask_path='', depth_path=depth_path, depth_npy_path=depth_npy_path, image_name=image_name,
                                   width=width, height=height, is_test=False, metadata=metadata, train_dynamic_objects=True)
-            cam_infos.append(cam_info) # 无mask，动静态一体训练一次
+            cam_infos.append(cam_info)
     for cam in [0, 1, 2, 3, 4]:
         camera_timestamps[cam]['train_timestamps'] = sorted(camera_timestamps[cam]['train_timestamps'])
     scene_meta['camera_timestamps'] = camera_timestamps
