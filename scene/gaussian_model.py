@@ -141,7 +141,7 @@ class GaussianModel:
                 state_dict['actor_pose'] = self.actor_pose.save_state_dict()
 
             if self.pose_correction is not None:
-                state_dict['pose_correction'] = self.pose_correction.save_state_dict()
+                state_dict['pose_correction'] = self.pose_correction.save_state_dict(True)
         else:
             state_dict['bkgd'] = (
                         self.active_sh_degree,
@@ -165,7 +165,7 @@ class GaussianModel:
                 state_dict['actor_pose'] = self.actor_pose.save_state_dict()
 
             if self.pose_correction is not None:
-                state_dict['pose_correction'] = self.pose_correction.save_state_dict()
+                state_dict['pose_correction'] = self.pose_correction.save_state_dict(False)
 
             state_dict['bkgd_optimizer'] = self.optimizer.state_dict()
             state_dict['bkgd_exposure_optimizer'] = self.exposure_optimizer.state_dict()
