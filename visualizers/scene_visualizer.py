@@ -24,14 +24,16 @@ class SceneVisualizer():
         for name, img in frame_groups.items():
             self.groups[name].append(img)
 
-    def merge_rendered_groups_as_one_mp4(self, output_path, sorted_names, layout):
-        if self.save_video and len(sorted_names) > 0:
+    def merge_rendered_groups_as_one_mp4(self, output_path, layout):
+        names = list(self.groups.keys())
+        if self.save_video and len(names) > 0:
             # 获取最大的行数和列数
             max_rows = max([pos[0] for pos in layout.values()]) + 1
             max_cols = max([pos[1] for pos in layout.values()]) + 1
+            print(f'Cavas layout: {max_rows} rows, {max_cols} cols')
 
             combined_frames = []
-            num_frames = len(self.groups[sorted_names[0]])
+            num_frames = len(self.groups[names[0]])
 
             for i in range(num_frames):
                 # 初始化一个空白的画布
@@ -40,7 +42,7 @@ class SceneVisualizer():
                 for row in range(max_rows):
                     col_canvases = []
                     for col in range(max_cols):
-                        for name in sorted_names:
+                        for name in names:
                             if layout.get(name) == (row, col):
                                 frame = self.groups[name][i]
                                 if canvas is None:
@@ -53,7 +55,7 @@ class SceneVisualizer():
                         else:
                             # 如果该位置没有指定视频，添加一个空白帧
                             if canvas is not None:
-                                col_canvases.append(np.zeros_like(self.groups[sorted_names[0]][i]))
+                                col_canvases.append(np.zeros_like(self.groups[names[0]][i]))
                     # 水平拼接列
                     row_canvas = np.hstack(col_canvases)
                     row_canvases.append(row_canvas)

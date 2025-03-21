@@ -21,6 +21,10 @@ WARNED = False
 
 def loadCam(args, id, cam_info, resolution_scale, is_test_dataset):
     image = Image.open(cam_info.image_path)
+    if cam_info.semantic_path is not None and cam_info.semantic_path != '':
+        semantic = np.load(cam_info.semantic_path)['semantic'] # [h, w]
+    else:
+        semantic = None
 
     if cam_info.mask_path != "":
         try:
@@ -94,7 +98,7 @@ def loadCam(args, id, cam_info, resolution_scale, is_test_dataset):
                   image=image, alpha_mask=alpha_mask, invdepthmap=invdepthmap,invdepthmap_npy=invdepthmap_npy,
                   image_name=cam_info.image_name, uid=id, data_device='cuda',
                   train_test_exp=args.train_test_exp, is_test_dataset=is_test_dataset, is_test_view=cam_info.is_test, metadata=cam_info.metadata,
-                  train_dynamic_objects=cam_info.train_dynamic_objects)
+                  train_dynamic_objects=cam_info.train_dynamic_objects,semantic=semantic)
 
 def cameraList_from_camInfos(cam_infos, resolution_scale, args):
     camera_list = []

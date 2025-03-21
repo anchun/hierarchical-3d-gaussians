@@ -14,6 +14,7 @@ from torch import nn
 import numpy as np
 from utils.graphics_utils import getWorld2View2, getProjectionMatrix
 import cv2
+from PIL import Image
 
 from utils.general_utils import PILtoTorch
 
@@ -26,7 +27,7 @@ class Camera(nn.Module):
                  image_name, uid,
                  trans=np.array([0.0, 0.0, 0.0]), scale=1.0, data_device = "cuda",
                  train_test_exp=False, is_test_dataset=False, is_test_view=False,
-                 metadata=None, semantic=None, train_dynamic_objects=True
+                 metadata=None, train_dynamic_objects=True,semantic=None
                  ):
         super(Camera, self).__init__()
 
@@ -108,18 +109,24 @@ class Camera(nn.Module):
 
         if metadata is not None and 'ego_pose' in self.metadata.keys():
             self.ego_pose = torch.from_numpy(self.metadata['ego_pose']).float().to(self.data_device)
-            #del self.metadata['ego_pose']
         else:
             self.ego_pose = None
 
         if metadata is not None and 'extrinsic' in self.metadata.keys():
             self.extrinsic = torch.from_numpy(self.metadata['extrinsic']).float().to(self.data_device)
-            #del self.metadata['extrinsic']
         else:
             self.extrinsic = None
 
-        if metadata is not None and 'semantic' in self.metadata.keys():
-            self.semantic = torch.tensor(self.metadata['semantic']).to(self.data_device)
+        if self.semantic is not None :
+            self.semantic = semantic_2_torch(self.semantic, resolution).to(self.data_device)
+
+
+def semantic_2_torch(semantic_np, resolution):
+    semantic_img = Image.fromarray(semantic_np.astype(np.uint8), mode='L')
+    if resolution[0] != semantic_img.size[0] or resolution[1] != semantic_img.size[1]:
+        semantic_img = semantic_img.resize(resolution, resample=Image.NEAREST)
+    return torch.from_numpy(np.array(semantic_img)).long().unsqueeze(0)
+
 
 class MiniCam:
     def __init__(self, width, height, fovy, fovx, znear, zfar, world_view_transform, full_proj_transform):

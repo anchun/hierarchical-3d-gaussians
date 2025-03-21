@@ -118,6 +118,7 @@ if __name__ == '__main__':
                 "--skybox_num", "100000",
                 "--model_path", os.path.join(output_dir, "scaffold"),
                 " --project_dir ", args.project_dir,
+                " --num_semantic_class ", str(args.num_semantic_class),
                 "--port", str(args.port),
             ])
             if masks_dir != "":

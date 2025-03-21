@@ -62,6 +62,7 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
 
     ema_loss_for_log = 0.0
     ema_Ll1depth_for_log = 0.0
+    ema_semantic_loss_for_log = 0.0
     psnr_val_for_log = 0.0
     ssim_val_for_log = 0.0
     progress_bar = tqdm(range(first_iter, opt.iterations), desc="Training progress")
@@ -166,8 +167,10 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
                             ignore_index=-1,
                             reduction='mean'
                         )
-                    lambda_semantic = 0.1 # TODO
+                    lambda_semantic = 0.5 # TODO
                     loss += lambda_semantic * semantic_loss
+                else:
+                    semantic_loss = 0
 
                 # if gaussians.use_camera_pose_correction:
                 #     pose_correction_reg_loss = gaussians.pose_correction.regularization_loss()
@@ -181,10 +184,11 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
                     # Progress bar
                     ema_loss_for_log = 0.1 * photo_loss.item() + 0.9 * ema_loss_for_log
                     ema_Ll1depth_for_log = 0.1 * Ll1depth + 0.9 * ema_Ll1depth_for_log
+                    ema_semantic_loss_for_log = 0.1 * semantic_loss.item() + 0.9 * ema_semantic_loss_for_log
                     psnr_val_for_log = 0.1 * psnr_val + 0.9 * psnr_val_for_log
                     ssim_val_for_log = 0.1 * ssim_val + 0.9 * ssim_val_for_log
                     if iteration % 10 == 0:
-                        progress_bar.set_postfix({"Loss": f"{ema_loss_for_log:.{7}f}", "Depth Loss": f"{ema_Ll1depth_for_log:.{7}f}", "PSNR": f"{psnr_val_for_log:.{5}f}", "SSIM": f"{ssim_val_for_log:.{5}f}" , "Size": f"{gaussians._xyz.size(0)}"})
+                        progress_bar.set_postfix({"Loss": f"{ema_loss_for_log:.{7}f}", "Depth Loss": f"{ema_Ll1depth_for_log:.{7}f}", "Semantic Loss": f"{ema_semantic_loss_for_log:.{7}f}", "PSNR": f"{psnr_val_for_log:.{5}f}", "SSIM": f"{ssim_val_for_log:.{5}f}" , "Size": f"{gaussians._xyz.size(0)}"})
                         progress_bar.update(10)
 
                     # Log and save
@@ -287,7 +291,7 @@ if __name__ == "__main__":
     args.save_iterations.append(args.iterations)
     args.checkpoint_iterations.append(args.iterations)
     # default densify for half iterations.
-    args.densify_until_iter = args.iterations / 2
+    args.densify_until_iter = 20000 # TODO args.iterations / 2
     print("Iterations: ", args.iterations, "Densify iterations: ", args.densify_until_iter)
     
     print("Optimizing " + args.model_path)

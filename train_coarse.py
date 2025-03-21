@@ -48,7 +48,7 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
     else:
         state_dict = None
     dataset.sh_degree = 1
-    gaussians = GaussianModel(dataset, scene_info, scene_info.scene_meta, num_camera_poses=len(scene_info.train_cameras), state_dict=state_dict)
+    gaussians = GaussianModel(dataset, scene_info, scene_info.scene_meta, num_camera_poses=len(scene_info.train_cameras), num_classes=opt.num_semantic_class, state_dict=state_dict)
     scene = Scene(dataset, scene_info, gaussians)
     gaussians.training_setup(opt)
     if state_dict is not None:
@@ -124,6 +124,22 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
                 else:
                     Ll1 = l1_loss(image, gt_image) 
                     loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * (1.0 - ssim(image, gt_image))
+
+                if opt.num_semantic_class > 0 and viewpoint_cam.semantic is not None:
+                    gt_semantic = viewpoint_cam.semantic.cuda().long()  # [1, H, W]
+                    if torch.all(gt_semantic == -1):
+                        semantic_loss = torch.zeros_like(Ll1)
+                    else:
+                        semantic = render_pkg['semantic'].unsqueeze(0)  # [1, S, H, W]
+                        semantic_loss = torch.nn.functional.cross_entropy(
+                            input=semantic,
+                            target=gt_semantic,
+                            ignore_index=-1,
+                            reduction='mean'
+                        )
+                    lambda_semantic = 0.5 # TODO
+                    loss += lambda_semantic * semantic_loss
+
                 loss.backward()
 
                 iter_end.record()

@@ -25,6 +25,7 @@ from scene.gaussian_model import BasicPointCloud
 import torch
 import joblib
 from tqdm import tqdm
+import time
 
 
 class CameraInfo(NamedTuple):
@@ -37,6 +38,7 @@ class CameraInfo(NamedTuple):
     primy:float
     depth_params: dict
     image_path: str
+    semantic_path: str
     mask_path: str
     depth_path: str
     depth_npy_path: str
@@ -151,7 +153,7 @@ def name_2_frame_id(name):
     return int(frame_id)
 
 
-def readNOTRCameras(scene_meta, depths_params, images_folder, masks_folder, depths_folder, test_cam_names_list, use_npy_depth=False, inference=False):
+def readNOTRCameras(scene_meta, depths_params, images_folder, masks_folder, semantic_folder, depths_folder, test_cam_names_list, use_npy_depth=False, inference=False):
     num_frames = scene_meta['num_frames']
     exts = scene_meta['exts']
     ixts = scene_meta['ixts']
@@ -161,11 +163,6 @@ def readNOTRCameras(scene_meta, depths_params, images_folder, masks_folder, dept
     frames, cams = scene_meta['frames'], scene_meta['cams']
     frames_idx = scene_meta['frames_idx']
     # num_cameras = len(cam_intrinsics)
-    # if 'semantics' in scene_meta.keys():
-    #     semantics = scene_meta['semantics'].reshape(num_frames, num_cameras).T
-    #     scene_meta['semantics'] = semantics
-    # else:
-    #     semantics = None
     cams_timestamps = scene_meta['cams_timestamps']
 
     cam_infos = []
@@ -201,14 +198,15 @@ def readNOTRCameras(scene_meta, depths_params, images_folder, masks_folder, dept
         metadata = dict()
         metadata['frame'] = frames[i]
         frame_id = name_2_frame_id(image_filename)
+        cam_id = cams[i]
         metadata['frame_id'] = frame_id
-        metadata['cam'] = cams[i]
+        metadata['cam'] = cam_id
         metadata['frame_idx'] = frames_idx[i]
         metadata['ego_pose'] = pose
         metadata['extrinsic'] = ext
         metadata['timestamp'] = cams_timestamps[i]
 
-        camera_timestamps[cams[i]]['train_timestamps'].append(cams_timestamps[i])
+        camera_timestamps[cam_id]['train_timestamps'].append(cams_timestamps[i])
         depth_params = None
         n_remove = len(image_filename.split('.')[-1]) + 1
         if depths_params is not None:
@@ -218,6 +216,7 @@ def readNOTRCameras(scene_meta, depths_params, images_folder, masks_folder, dept
                 print("\n", key, "not found in depths_params")
         image_path = os.path.join(images_folder, image_filename)
         image_name = image_filename
+        semantic_path = os.path.join(semantic_folder, image_filename.replace('jpg', 'npz'))
         if not os.path.exists(image_path):
             image_path = os.path.join(images_folder, f"{image_filename[:-n_remove]}.jpg")
             image_name = f"{image_filename[:-n_remove]}.jpg"
@@ -235,17 +234,17 @@ def readNOTRCameras(scene_meta, depths_params, images_folder, masks_folder, dept
 
         # 每张图像训练两次，因为单独用无mask的动静态一体建模，出来的静态场景，效果比mask建模的静态场景略差。所以其中一次使用静态mask的方式跑一遍
         # 有mask，只训练静态场景一次
+        # 没有动态对象时，mask是全0图像
         cam_info = CameraInfo(uid=i, R=R, T=T, FovY=FovY, FovX=FovX, primx=primx, primy=primy, depth_params=depth_params,
-                              image_path=image_path, mask_path=mask_path, depth_path=depth_path, depth_npy_path=depth_npy_path, image_name=image_name,
+                              image_path=image_path, semantic_path=semantic_path, mask_path=mask_path, depth_path=depth_path, depth_npy_path=depth_npy_path, image_name=image_name,
                               width=width, height=height, is_test=False, metadata=metadata, train_dynamic_objects=False)
         cam_infos.append(cam_info)
 
         # 无mask，动静态一体训练一次
-        # TODO: deformable的物体应该只用mask训练，不能进行动态建模
-        # 即：训练集应该有两张mask图像，一张mask所有动态对象，一张只mask deformable的物体
-        if not inference:
+        # TODO: deformable的物体应该只用mask训练，不能进行动态建模。即：训练集应该有两张mask图像，一张mask所有动态对象，一张只mask deformable的物体
+        if not inference and has_dynamic_objects(scene_meta, frame_id):
             cam_info = CameraInfo(uid=i, R=R, T=T, FovY=FovY, FovX=FovX, primx=primx, primy=primy, depth_params=depth_params,
-                                  image_path=image_path, mask_path='', depth_path=depth_path, depth_npy_path=depth_npy_path, image_name=image_name,
+                                  image_path=image_path, semantic_path=semantic_path, mask_path='', depth_path=depth_path, depth_npy_path=depth_npy_path, image_name=image_name,
                                   width=width, height=height, is_test=False, metadata=metadata, train_dynamic_objects=True)
             cam_infos.append(cam_info)
     for cam in [0, 1, 2, 3, 4]:
@@ -254,6 +253,14 @@ def readNOTRCameras(scene_meta, depths_params, images_folder, masks_folder, dept
 
     sys.stdout.write('\n')
     return cam_infos
+
+
+def has_dynamic_objects(scene_meta, frame_id):
+    dynamic_objs = scene_meta['obj_info']
+    for obj_id, obj in dynamic_objs.items():
+        if obj['start_frame'] >= frame_id and frame_id <= obj['end_frame']:
+            return True
+    return False
 
 
 def fetchPly(path):
@@ -424,6 +431,9 @@ def readNOTRSceneInfo(project_dir, path, images, masks, depths, eval, train_test
     ## if depth_params_file isnt there AND depths file is here -> throw error
     depths_params = None
     scene_meta = joblib.load(os.path.join(project_dir, "scene_meta.bin"))
+    # if os.path.exists(os.path.join(project_dir, "semantics.npz")):
+    #     semantics = np.load(os.path.join(project_dir, "semantics.npz"), allow_pickle=True)
+    #     scene_meta['semantics'] = semantics
     # cam_extrinsics = scene_meta['extrinsics'][:len(cam_intrinsics.keys())]
 
     if depths != "" and not use_npy_depth:
@@ -465,11 +475,12 @@ def readNOTRSceneInfo(project_dir, path, images, masks, depths, eval, train_test
 
     reading_dir = "images" if images == None else images
     masks_reading_dir = masks if masks == "" else os.path.join(path, masks)
+    semantic_folder = os.path.join(project_dir, 'semantics')
 
     cam_infos_unsorted = readNOTRCameras(
         scene_meta=scene_meta,
         depths_params=depths_params,
-        images_folder=os.path.join(path, reading_dir), masks_folder=masks_reading_dir,
+        images_folder=os.path.join(path, reading_dir), masks_folder=masks_reading_dir, semantic_folder=semantic_folder,
         depths_folder=os.path.join(path, depths) if depths != "" else "", test_cam_names_list=[],
         use_npy_depth=use_npy_depth,
         inference=inference)
