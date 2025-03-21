@@ -632,7 +632,6 @@ class GaussianModel:
         semantic_names = [p.name for p in plydata.elements[0].properties if p.name.startswith("semantic_")]
         semantic_names = sorted(semantic_names, key = lambda x: int(x.split('_')[-1]))
         semantic = np.zeros((xyz.shape[0], len(semantic_names)))
-        [print(p.name) for p in plydata.elements[0].properties if p.name.startswith("semantic_")]
         if self.num_classes > 0:
             for idx, attr_name in enumerate(semantic_names):
                semantic[:, idx] = np.asarray(plydata.elements[0][attr_name])
