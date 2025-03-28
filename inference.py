@@ -12,6 +12,7 @@ from arguments import ModelParams, PipelineParams, OptimizationParams
 from visualizers.scene_visualizer import SceneVisualizer
 from gaussian_renderer import render
 from utils.system_utils import searchForMaxIteration
+from PIL import Image
 
 
 def parse_visible_obj_names(visible_obj_ids):
@@ -105,7 +106,8 @@ if __name__ == "__main__":
     pipeline_params.convert_SHs_python = False
 
     print("Rendering " + args.model_path)
-
+    semantic_output_folder = os.path.join(args.output_dir, 'render_semantics_cam_' + str(0))
+    os.makedirs(semantic_output_folder, exist_ok=True)
     with torch.no_grad():
         scene, gaussians = load_scene(args, model_params)
         visualizer = SceneVisualizer(args.output_dir)
@@ -117,7 +119,8 @@ if __name__ == "__main__":
         background = torch.tensor([1, 1, 1], dtype=torch.float32, device="cuda")
         visualizer.make_groups(['rgb_gt', 'rgb_inferenced'
                                    # , 'remove_some_vehicles', 'remove_some_and_replace_one'
-                                   , 'rgb_gt_with_semantic', 'rgb_inferenced_with_semantic'])
+                                   # , 'rgb_gt_with_semantic', 'rgb_inferenced_with_semantic'
+                               ])
         visible_obj_names = parse_visible_obj_names(args.visible_obj_ids)
         replacements = parse_visible_obj_replacements(args.visible_obj_replacements)
         for idx, camera in enumerate(tqdm(cameras, desc="Rendering...")):
@@ -135,20 +138,22 @@ if __name__ == "__main__":
             # render_result = render(camera, gaussians, pipeline_params, background, indices=None, use_trained_exp=False)
             # remove_some_and_replace_one = (render_result['render'].detach().cpu().numpy().transpose(1, 2, 0) * 255).astype(np.uint8)
 
-            semantic_gt = camera.semantic.detach().cpu().numpy().transpose(1, 2, 0)
-            semantic_inferenced = to_semantic_class(render_result['semantic'])
-            semantic_inferenced = semantic_inferenced.transpose(1, 2, 0).astype(semantic_gt.dtype)
-            rgb_gt_with_semantic = blend_semantic_on_rgb(rgb_gt, semantic_gt)
+            # semantic_gt = camera.semantic.detach().cpu().numpy().transpose(1, 2, 0)
+            # semantic_inferenced = to_semantic_class(render_result['semantic'])
+            # semantic_inferenced = semantic_inferenced.transpose(1, 2, 0).astype(semantic_gt.dtype)
+            # semantic_img = Image.fromarray(semantic_inferenced.squeeze(-1).astype(np.uint8)*255, mode='L')
+            # semantic_img.save(os.path.join(semantic_output_folder, f'{idx:06d}.jpg'))
+            # rgb_gt_with_semantic = blend_semantic_on_rgb(rgb_gt, semantic_gt)
 
-            rgb_inferenced_with_semantic = blend_semantic_on_rgb(rgb_inferenced, semantic_inferenced)
+            # rgb_inferenced_with_semantic = blend_semantic_on_rgb(rgb_inferenced, semantic_inferenced)
 
             visualizer.append_one_frame({
                 'rgb_gt': rgb_gt,
                 'rgb_inferenced': rgb_inferenced,
                 # 'remove_some_vehicles': remove_some_vehicles,
                 # 'remove_some_and_replace_one': remove_some_and_replace_one,
-                'rgb_gt_with_semantic': rgb_gt_with_semantic,
-                'rgb_inferenced_with_semantic': rgb_inferenced_with_semantic,
+                # 'rgb_gt_with_semantic': rgb_gt_with_semantic,
+                # 'rgb_inferenced_with_semantic': rgb_inferenced_with_semantic,
             })
 
         output_path = os.path.join(args.output_dir, 'combined_video.mp4')
@@ -158,8 +163,8 @@ if __name__ == "__main__":
             "rgb_inferenced": (0, 1),
             # "remove_some_vehicles": (1, 0),
             # "remove_some_and_replace_one": (1, 1),
-            "rgb_gt_with_semantic": (1, 0),
-            "rgb_inferenced_with_semantic": (1, 1),
+            # "rgb_gt_with_semantic": (1, 0),
+            # "rgb_inferenced_with_semantic": (1, 1),
         }
         print('Saving videos...')
         visualizer.merge_rendered_groups_as_one_mp4(output_path, layout)

@@ -86,10 +86,6 @@ class GaussianModelActor():
         extent = max(length*1.5/box_scale, width*1.5/box_scale, height) / 2.
         self.extent = torch.tensor([extent]).float().cuda()   
 
-        num_classes = 0 # 1 if cfg.data.get('use_semantic', False) else 0
-        self.num_classes_global = 1 # cfg.data.num_classes if cfg.data.get('use_semantic', False) else 0 TODO
-        #super().__init__(model_name=model_name, num_classes=num_classes)
-        
         self.flip_prob = 0 # cfg.model.gaussian.get('flip_prob', 0.) if not self.deformable else 0.
         self.flip_axis = 1
 
@@ -131,17 +127,7 @@ class GaussianModelActor():
 
     @property
     def get_semantic(self):
-        # semantic = torch.zeros((self.get_xyz.shape[0], self.num_classes_global)).float().cuda()
-        # if self.semantic_mode == 'logits':
-        #     semantic[:, self.obj_class_label] = self._semantic[:, 0] # ubounded semantic
-        # elif self.semantic_mode == 'probabilities':
-        #     semantic[:, self.obj_class_label] = torch.nn.functional.sigmoid(self._semantic[:, 0]) # 0 ~ 1
-        #
-        # return semantic
-        if True:  # self.semantic_mode == 'logits':
-            return self._semantic
-        else: # 'probabilities':
-            return torch.nn.functional.softmax(self._semantic, dim=1)
+        return self._semantic
 
     @property
     def get_scaling(self):

@@ -128,11 +128,11 @@ if __name__ == '__main__':
             if args.extra_training_args != "": 
                 train_coarse_args += " " + args.extra_training_args
 
-            try:
-                subprocess.run(train_coarse_args, shell=True, check=True)
-            except subprocess.CalledProcessError as e:
-                print(f"Error executing train_coarse: {e}")
-                sys.exit(1)
+            # try:
+            #     subprocess.run(train_coarse_args, shell=True, check=True)
+            # except subprocess.CalledProcessError as e:
+            #     print(f"Error executing train_coarse: {e}")
+            #     sys.exit(1)
 
 
     if not os.path.isabs(images_dir):
@@ -154,11 +154,11 @@ if __name__ == '__main__':
         f"--save_iterations {' '.join([str(i) for i in args.save_iterations])}",
         f"-i {images_dir}", 
         f"-d {depths_dir}",
-        f"--scaffold_file {output_dir}/scaffold/point_cloud/iteration_{args.course_iterations}",
+        # f"--scaffold_file {output_dir}/scaffold/point_cloud/iteration_{args.course_iterations}",
         f"--port {args.port}",
         f"{camera_correct}",
         f"--num_semantic_class {args.num_semantic_class}",
-        "--skybox_locked"
+        # "--skybox_locked"
     ])
     if args.disable_viewer:
         train_chunk_args += " --disable_viewer"

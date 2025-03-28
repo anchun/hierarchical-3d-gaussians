@@ -104,6 +104,7 @@ class GaussianModel:
         self.metadata = metadata
         self.visible_dynamic_object_names = []
         self.inference_visible_replacements = {}
+        self.inference_shifts = {}
         self.setup_functions()
         if state_dict is not None:
             # 从checkpoint恢复训练时，需要restore全部状态
@@ -152,6 +153,7 @@ class GaussianModel:
                         self._scaling,
                         self._rotation,
                         self._opacity,
+                        self._semantic,
                         self.max_radii2D,
                         self.xyz_gradient_accum,
                         self.denom,
@@ -187,6 +189,7 @@ class GaussianModel:
             self._scaling,
             self._rotation,
             self._opacity,
+            self._semantic,
             self.max_radii2D,
             self.xyz_gradient_accum,
             self.denom,
@@ -212,11 +215,19 @@ class GaussianModel:
         for dynamic_obj in self.obj_list:
             dynamic_obj.restore_training_status(state_dict[dynamic_obj.get_modelname])
 
+    # 推理时用，用于场景编辑
     def set_visible_dynamic_object_names(self, visible_model_names):
         self.visible_dynamic_object_names = visible_model_names
 
+    # 推理时用，用于场景编辑，替换动态车
+    # replacements: dict,key为要替换的对象id，value为被替换为哪个对象的id
     def replace_inference_models(self, replacements):
         self.inference_visible_replacements = replacements
+
+    # 推理时用，用于场景编辑，移动动态车，
+    # shifts：dict,key为对象id，value为dict{'x':相对主车的x位移,'y':..,'z':..}
+    def shift_dynamic_objects(self, shifts):
+        self.inference_shifts = shifts
 
     def parse_camera(self, camera: Camera):
         self.viewpoint_camera = camera
@@ -268,6 +279,7 @@ class GaussianModel:
             self.obj_trans = []
             for i, obj_model in enumerate(self.visible_objects):
                 object_id = obj_model.object_id
+                raw_obj_model = obj_model
                 if obj_model.get_modelname in self.inference_visible_replacements.keys():
                 # TODO 这是测试渲染时的编辑操作时临时使用的
                     target_name = self.inference_visible_replacements[obj_model.get_modelname]
@@ -281,7 +293,15 @@ class GaussianModel:
                 ego_pose_rot = matrix_to_quaternion(ego_pose[:3, :3].unsqueeze(0)).squeeze(0)
                 obj_rot = quaternion_raw_multiply(ego_pose_rot.unsqueeze(0), obj_rot.unsqueeze(0)).squeeze(0)
                 obj_trans = ego_pose[:3, :3] @ obj_trans + ego_pose[:3, 3]
-                
+                if raw_obj_model.get_modelname in self.inference_shifts.keys():
+                    shifts = self.inference_shifts[raw_obj_model.get_modelname]
+                    if 'x' in shifts.keys():
+                        obj_trans[0] += shifts['x']
+                    if 'y' in shifts.keys():
+                        obj_trans[1] += shifts['y']
+                    if 'z' in shifts.keys():
+                        obj_trans[2] += shifts['z']
+
                 obj_rot = obj_rot.expand(obj_model.get_xyz.shape[0], -1)
                 obj_trans = obj_trans.unsqueeze(0).expand(obj_model.get_xyz.shape[0], -1)
                 
