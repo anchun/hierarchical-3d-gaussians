@@ -204,7 +204,7 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
                         return
 
                     # Densification
-                    if iteration < opt.densify_until_iter:
+                    if iteration < opt.densify_until_iter and gaussians._xyz.shape[0] < 6000000: # TODO
                         # Keep track of max radii in image-space for pruning
                         #gaussians.max_radii2D[visibility_filter] = torch.max(gaussians.max_radii2D[visibility_filter], radii)
                         gaussians.set_max_radii2D(radii, visibility_filter)
@@ -291,7 +291,7 @@ if __name__ == "__main__":
     args.save_iterations.append(args.iterations)
     args.checkpoint_iterations.append(args.iterations)
     # default densify for half iterations.
-    args.densify_until_iter = 20000 # TODO args.iterations / 2
+    args.densify_until_iter = args.iterations / 2
     print("Iterations: ", args.iterations, "Densify iterations: ", args.densify_until_iter)
     
     print("Optimizing " + args.model_path)
