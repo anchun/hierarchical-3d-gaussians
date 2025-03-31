@@ -34,6 +34,20 @@ def parse_visible_obj_replacements(visible_obj_replacements):
     return replacements
 
 
+def parse_cam_offset(cam_shift_define):
+    # 格式：x_-1.0,y_2.4,z_0.8
+    if cam_shift_define == '' or cam_shift_define is None:
+        return {}
+    shift = {}
+    shifts_details = cam_shift_define.split(',')
+    for shifts_detail in shifts_details:
+        dim_and_value = shifts_detail.split('_')
+        dim = dim_and_value[0]
+        value = float(dim_and_value[1])
+        shift[dim] = value
+    return shift
+
+
 def load_scene(args, model_params):
     model_path = os.path.join(args.input_dir, 'output', 'trained_chunks', '0_0')
     if args.load_iteration == -1:
@@ -102,6 +116,7 @@ if __name__ == "__main__":
     parser.add_argument('--output_dir', type=str)
     parser.add_argument('--visible_obj_ids', type=str, default='')
     parser.add_argument('--visible_obj_replacements', type=str, default='')
+    parser.add_argument('--cam_shift', type=str, default='')
     parser.add_argument('--load_iteration', type=int, default=-1)
     args = parser.parse_args(sys.argv[1:])
     args.source_path = ''
@@ -112,6 +127,7 @@ if __name__ == "__main__":
     op = OptimizationParams(parser).extract(args)
     model_params = ModelParams(parser).extract(args)
     model_params.sh_degree = 3
+    model_params.cam_shift = parse_cam_offset(args.cam_shift)
     pipeline_params = PipelineParams(parser).extract(args)
     pipeline_params.debug = False
     pipeline_params.compute_cov3D_python = False

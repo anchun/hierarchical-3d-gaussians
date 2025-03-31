@@ -92,11 +92,16 @@ def loadCam(args, id, cam_info, resolution_scale, is_test_dataset):
         scale = float(global_down) * float(resolution_scale)
         resolution = (int(orig_w / scale), int(orig_h / scale))
 
-    return Camera(resolution, colmap_id=cam_info.uid, R=cam_info.R, T=cam_info.T, 
+    cam_shift = np.array([0.0, 0.0, 0.0])
+    if hasattr(args, 'cam_shift'): # inference时修改相机位姿用的
+        cam_shift_dict = getattr(args, 'cam_shift')
+        cam_shift = np.array([cam_shift_dict['x'], cam_shift_dict['y'], cam_shift_dict['z']])
+
+    return Camera(resolution, colmap_id=cam_info.uid, R=cam_info.R, T=cam_info.T,
                   FoVx=cam_info.FovX, FoVy=cam_info.FovY, depth_params=cam_info.depth_params,
                   primx=cam_info.primx, primy=cam_info.primy,
                   image=image, alpha_mask=alpha_mask, invdepthmap=invdepthmap,invdepthmap_npy=invdepthmap_npy,
-                  image_name=cam_info.image_name, uid=id, data_device='cuda',
+                  image_name=cam_info.image_name, uid=id, trans=cam_shift, data_device='cuda',
                   train_test_exp=args.train_test_exp, is_test_dataset=is_test_dataset, is_test_view=cam_info.is_test, metadata=cam_info.metadata,
                   train_dynamic_objects=cam_info.train_dynamic_objects,semantic=semantic)
 
