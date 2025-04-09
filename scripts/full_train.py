@@ -70,6 +70,7 @@ if __name__ == '__main__':
     parser.add_argument('--num_semantic_class', type=int, default=0)
     parser.add_argument("--save_iterations", nargs="+", type=int, default=[30_000])
     parser.add_argument("--max_num_points", type=int, default=6000000)
+    parser.add_argument('--preload_all_cams', action="store_true", default=False)
     parser.add_argument('--port', default=6009)
     args = parser.parse_args()
     print(args.extra_training_args)
@@ -148,6 +149,10 @@ if __name__ == '__main__':
         camera_correct = '--use_camera_pose_correction'
     else:
         camera_correct = ''
+    if args.preload_all_cams:
+        preload_all_cams = '--preload_all_cams'
+    else:
+        preload_all_cams = ''
     train_chunk_args =  " ".join([
         "python", "-u train_single.py",
         "--sh_degree", str(args.sh_degree),
@@ -158,6 +163,7 @@ if __name__ == '__main__':
         # f"--scaffold_file {output_dir}/scaffold/point_cloud/iteration_{args.course_iterations}",
         f"--port {args.port}",
         f"{camera_correct}",
+        f"{preload_all_cams}",
         f"--num_semantic_class {args.num_semantic_class}",
         f"--max_num_points {args.max_num_points}",
         # "--skybox_locked"

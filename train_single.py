@@ -10,6 +10,10 @@
 #
 
 import os
+torch_home = os.path.abspath('./torch_home')
+os.environ['TORCH_HOME'] = torch_home
+
+
 import torch
 from utils.loss_utils import l1_loss, ssim
 from utils.image_utils import psnr
@@ -23,6 +27,8 @@ from tqdm import tqdm
 from torch.utils.data import DataLoader
 from argparse import ArgumentParser, Namespace
 from arguments import ModelParams, PipelineParams, OptimizationParams
+# from lpipsPyTorch import lpips
+
 
 def direct_collate(x):
     return x
@@ -81,10 +87,7 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
             for viewpoint_cam in viewpoint_batch:
                # background = torch.rand((3), dtype=torch.float32, device="cuda")
 
-                viewpoint_cam.world_view_transform = viewpoint_cam.world_view_transform.cuda()
-                viewpoint_cam.projection_matrix = viewpoint_cam.projection_matrix.cuda()
-                viewpoint_cam.full_proj_transform = viewpoint_cam.full_proj_transform.cuda()
-                viewpoint_cam.camera_center = viewpoint_cam.camera_center.cuda()
+                viewpoint_cam.to_cuda()
 
                 if not args.disable_viewer:
                     if network_gui.conn == None:
@@ -124,28 +127,29 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
                 image, invDepth, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["depth"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
 
                 # Loss
-                gt_image = viewpoint_cam.original_image.cuda()
+                gt_image = viewpoint_cam.original_image
                 if viewpoint_cam.alpha_mask is not None: # viewpoint_cam.train_dynamic_objects为True时，viewpoint_cam.alpha_mask其实为全1张量
-                    alpha_mask = viewpoint_cam.alpha_mask.cuda()
+                    alpha_mask = viewpoint_cam.alpha_mask
                     image *= alpha_mask
                 
                 Ll1 = l1_loss(image, gt_image)
                 Lssim = (1.0 - ssim(image, gt_image))
+                # Llpips = lpips(image, gt_image, net_type='vgg')
                 psnr_val = psnr(image, gt_image).mean().double()
                 ssim_val = (1.0 - Lssim).mean().double()
 
-                photo_loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * Lssim 
+                photo_loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * Lssim # + Llpips
                 loss = photo_loss.clone()
                 Ll1depth_pure = 0.0
                 if depth_l1_weight(iteration) > 0 and viewpoint_cam.depth_reliable:
                     if dataset.use_npy_depth:
-                        mono_invdepth = viewpoint_cam.invdepthmap_npy.cuda()
-                        depth_mask = viewpoint_cam.depth_mask_npy.cuda()
+                        mono_invdepth = viewpoint_cam.invdepthmap_npy
+                        depth_mask = viewpoint_cam.depth_mask_npy
                         depth_error = torch.abs(invDepth[0][depth_mask] - mono_invdepth[depth_mask])
                         depth_error, _ = torch.topk(depth_error, int(0.9 * depth_error.size(0)), largest=False)
                     else:
-                        mono_invdepth = viewpoint_cam.invdepthmap.cuda()
-                        depth_mask = viewpoint_cam.depth_mask.cuda()
+                        mono_invdepth = viewpoint_cam.invdepthmap
+                        depth_mask = viewpoint_cam.depth_mask
                         depth_error = torch.abs((invDepth  - mono_invdepth) * depth_mask)
 
                     Ll1depth_pure = depth_error.mean()
@@ -156,7 +160,7 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
                     Ll1depth = 0
 
                 if opt.num_semantic_class > 0 and viewpoint_cam.semantic is not None:
-                    gt_semantic = viewpoint_cam.semantic.cuda().long()  # [1, H, W]
+                    gt_semantic = viewpoint_cam.semantic.long()  # [1, H, W]
                     if torch.all(gt_semantic == -1):
                         semantic_loss = torch.zeros_like(Ll1)
                     else:
@@ -204,7 +208,8 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
                         return
 
                     # Densification
-                    if iteration < opt.densify_until_iter and gaussians._xyz.shape[0] < 6000000: # TODO
+                    not_enouth_points = opt.max_num_points <= 0 or gaussians._xyz.shape[0] < opt.max_num_points
+                    if iteration < opt.densify_until_iter and not_enouth_points:
                         # Keep track of max radii in image-space for pruning
                         #gaussians.max_radii2D[visibility_filter] = torch.max(gaussians.max_radii2D[visibility_filter], radii)
                         gaussians.set_max_radii2D(radii, visibility_filter)
@@ -257,6 +262,7 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
                         torch.save(state_dict, os.path.join(scene.model_path, "chkp_" + str(iteration) + ".pth"))
 
                     iteration += 1
+                viewpoint_cam.to_cpu()
 
 def prepare_output_and_logger(args):    
     if not args.model_path:
@@ -287,7 +293,6 @@ if __name__ == "__main__":
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument("--checkpoint_iterations", nargs="+", type=int, default=[])
     parser.add_argument("--start_checkpoint", type=str, default = None)
-    parser.add_argument("--max_num_points", type=int, default = 6000000)
     args = parser.parse_args(sys.argv[1:])
     args.save_iterations.append(args.iterations)
     args.checkpoint_iterations.append(args.iterations)

@@ -161,6 +161,8 @@ if __name__ == "__main__":
             render_result = render(camera, gaussians, pipeline_params, background, indices=None, use_trained_exp=False)
             remove_some_and_replace_one = (render_result['render'].detach().cpu().numpy().transpose(1, 2, 0) * 255).astype(np.uint8)
             gaussians.shift_dynamic_objects({})
+            remove_some_and_replace_one_img = Image.fromarray(remove_some_and_replace_one, mode='L')
+            remove_some_and_replace_one_img.save(os.path.join(semantic_output_folder, f'{idx:06d}.jpg'))
 
             # semantic_gt = camera.semantic.detach().cpu().numpy().transpose(1, 2, 0)
             # semantic_inferenced = to_semantic_class(render_result['semantic'])

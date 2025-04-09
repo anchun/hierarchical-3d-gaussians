@@ -67,6 +67,7 @@ class ModelParams(ParamGroup):
         self.bounds_file = ""
         self.skybox_locked = False
         self.use_npy_depth = False
+        self.preload_all_cams = False
         super().__init__(parser, "Loading Parameters", sentinel)
 
     def extract(self, args):
@@ -108,6 +109,7 @@ class OptimizationParams(ParamGroup):
         self.depth_l1_weight_final = 0.01
         self.use_camera_pose_correction = False
         self.num_semantic_class = 0
+        self.max_num_points = 6000000
         super().__init__(parser, "Optimization Parameters")
 
 def get_combined_args(parser : ArgumentParser):

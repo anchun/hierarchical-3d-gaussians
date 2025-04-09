@@ -75,6 +75,8 @@ def run_colmap_waymo(input_dir, output_dir, result):
         new_mask_filename = f'{new_image_filename}'
         if not os.path.exists(new_mask_filename):
             shutil.copyfile(image_filename, new_mask_filename)
+            # 在A100机器上好像colmap feature_extractor默认要读取.png结尾，但在12.37上不是这样。TODO 待查
+            shutil.copyfile(image_filename, new_mask_filename + '.png')
             mask = cv2.imread(new_mask_filename)
             flip_mask = (255 - mask).astype(np.uint8)
             cv2.imwrite(new_mask_filename, flip_mask)

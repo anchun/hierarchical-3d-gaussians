@@ -19,7 +19,7 @@ import cv2
 
 WARNED = False
 
-def loadCam(args, id, cam_info, resolution_scale, is_test_dataset):
+def loadCam(args, id, cam_info, resolution_scale, is_test_dataset, data_device):
     image = Image.open(cam_info.image_path)
     if cam_info.semantic_path is not None and cam_info.semantic_path != '':
         semantic = np.load(cam_info.semantic_path)['semantic'] # [h, w]
@@ -101,7 +101,7 @@ def loadCam(args, id, cam_info, resolution_scale, is_test_dataset):
                   FoVx=cam_info.FovX, FoVy=cam_info.FovY, depth_params=cam_info.depth_params,
                   primx=cam_info.primx, primy=cam_info.primy,
                   image=image, alpha_mask=alpha_mask, invdepthmap=invdepthmap,invdepthmap_npy=invdepthmap_npy,
-                  image_name=cam_info.image_name, uid=id, trans=cam_shift, data_device='cuda',
+                  image_name=cam_info.image_name, uid=id, trans=cam_shift, data_device=data_device,
                   train_test_exp=args.train_test_exp, is_test_dataset=is_test_dataset, is_test_view=cam_info.is_test, metadata=cam_info.metadata,
                   train_dynamic_objects=cam_info.train_dynamic_objects,semantic=semantic)
 
@@ -139,13 +139,19 @@ import torch
 
 class CameraDataset(torch.utils.data.Dataset):
   'Characterizes a dataset for PyTorch'
-  def __init__(self, list_cam_infos, args, resolution_scales, is_test):
+  def __init__(self, list_cam_infos, args, resolution_scales, preload_all_cams, is_test):
         'Initialization'
         self.resolution_scales = resolution_scales
         self.list_cam_infos = list_cam_infos
         self.args = args
         self.args.data_device = 'cpu'
         self.is_test = is_test
+        self.preloaded_cameras = []
+        if preload_all_cams:
+            for index, info in enumerate(self.list_cam_infos):
+                X = loadCam(self.args, index, info, self.resolution_scales, self.is_test, self.args.data_device)
+                X.cam_idx = index
+                self.preloaded_cameras.append(X)
 
   def __len__(self):
         'Denotes the total number of samples'
@@ -153,11 +159,12 @@ class CameraDataset(torch.utils.data.Dataset):
 
   def __getitem__(self, index):
         'Generates one sample of data'
+        if len(self.preloaded_cameras) > 0:
+            return self.preloaded_cameras[index]
 
         # Select sample
         info = self.list_cam_infos[index]
-        X = loadCam(self.args, index, info, self.resolution_scales, self.is_test)
+        X = loadCam(self.args, index, info, self.resolution_scales, self.is_test, self.args.data_device)
         X.cam_idx = index
-
         return X
   

@@ -87,7 +87,7 @@ if __name__ == '__main__':
                 if not os.path.exists(dst_mask_folder):
                     os.makedirs(dst_mask_folder)
                 for file in files:
-                    shutil.copyfile(os.path.join(src_mask_folder, os.path.splitext(file)[0] + ".jpg"), os.path.join(dst_mask_folder, file + ".jpg"))
+                    shutil.copyfile(os.path.join(src_mask_folder, os.path.splitext(file)[0] + ".jpg"), os.path.join(dst_mask_folder, file + ".png"))
             except e:
                 print(f"Error executing copying masks: {e}")
         else:

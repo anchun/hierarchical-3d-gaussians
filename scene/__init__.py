@@ -69,10 +69,10 @@ class Scene:
 
         for resolution_scale in resolution_scales:
             print("Making Training Dataset")
-            self.train_cameras[resolution_scale] = CameraDataset(scene_info.train_cameras, args, resolution_scale, False)
+            self.train_cameras[resolution_scale] = CameraDataset(scene_info.train_cameras, args, resolution_scale, args.preload_all_cams, False)
 
             print("Making Test Dataset")
-            self.test_cameras[resolution_scale] = CameraDataset(scene_info.test_cameras, args, resolution_scale, True)
+            self.test_cameras[resolution_scale] = CameraDataset(scene_info.test_cameras, args, resolution_scale, args.preload_all_cams, True)
 
     def save(self, iteration):
         point_cloud_path = os.path.join(self.model_path, "point_cloud/iteration_{}".format(iteration))

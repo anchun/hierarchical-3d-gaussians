@@ -90,11 +90,16 @@ class Camera(nn.Module):
                 self.depth_mask *= 0
             else:
                 self.depth_reliable = True
+        else:
+            self.depth_mask = None
 
         if invdepthmap_npy is not None:
             self.invdepthmap_npy = torch.from_numpy(invdepthmap_npy).to(self.data_device)
             self.depth_mask_npy = self.invdepthmap_npy > 0
             self.depth_reliable = True
+        else:
+            self.invdepthmap_npy = None
+            self.depth_mask_npy = None
 
         self.zfar = 100.0
         self.znear = 0.01
@@ -119,6 +124,48 @@ class Camera(nn.Module):
 
         if self.semantic is not None :
             self.semantic = semantic_2_torch(self.semantic, resolution).to(self.data_device)
+
+    def to_cpu(self):
+        self.world_view_transform = self.world_view_transform.cpu()
+        self.projection_matrix = self.projection_matrix.cpu()
+        self.full_proj_transform = self.full_proj_transform.cpu()
+        self.camera_center = self.camera_center.cpu()
+        self.original_image = self.original_image.cpu()
+        if self.invdepthmap is not None:
+            self.invdepthmap = self.invdepthmap.cpu()
+        if self.alpha_mask is not None:
+            self.alpha_mask = self.alpha_mask.cpu()
+        if self.invdepthmap_npy is not None:
+            self.invdepthmap_npy = self.invdepthmap_npy.cpu()
+        if self.depth_mask_npy is not None:
+            self.depth_mask_npy = self.depth_mask_npy.cpu()
+        if self.semantic is not None:
+            self.semantic = self.semantic.cpu()
+        if self.depth_mask is not None:
+            self.depth_mask = self.depth_mask.cpu()
+        if self.ego_pose is not None:
+            self.ego_pose = self.ego_pose.cpu()
+
+    def to_cuda(self):
+        self.world_view_transform = self.world_view_transform.cuda()
+        self.projection_matrix = self.projection_matrix.cuda()
+        self.full_proj_transform = self.full_proj_transform.cuda()
+        self.camera_center = self.camera_center.cuda()
+        self.original_image = self.original_image.cuda()
+        if self.invdepthmap is not None:
+            self.invdepthmap = self.invdepthmap.cuda()
+        if self.alpha_mask is not None:
+            self.alpha_mask = self.alpha_mask.cuda()
+        if self.invdepthmap_npy is not None:
+            self.invdepthmap_npy = self.invdepthmap_npy.cuda()
+        if self.depth_mask_npy is not None:
+            self.depth_mask_npy = self.depth_mask_npy.cuda()
+        if self.semantic is not None:
+            self.semantic = self.semantic.cuda()
+        if self.depth_mask is not None:
+            self.depth_mask = self.depth_mask.cuda()
+        if self.ego_pose is not None:
+            self.ego_pose = self.ego_pose.cuda()
 
 
 def semantic_2_torch(semantic_np, resolution):
