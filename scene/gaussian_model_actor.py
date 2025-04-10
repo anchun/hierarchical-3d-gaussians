@@ -86,7 +86,7 @@ class GaussianModelActor():
         extent = max(length*1.5/box_scale, width*1.5/box_scale, height) / 2.
         self.extent = torch.tensor([extent]).float().cuda()   
 
-        self.flip_prob = 0 # cfg.model.gaussian.get('flip_prob', 0.) if not self.deformable else 0.
+        self.flip_prob = 0.5 if not self.deformable else 0. # TODO configable
         self.flip_axis = 1
 
         self.spatial_lr_scale = extent

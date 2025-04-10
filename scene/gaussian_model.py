@@ -105,6 +105,11 @@ class GaussianModel:
         self.visible_dynamic_object_names = []
         self.inference_visible_replacements = {}
         self.inference_shifts = {}
+        self.flip_prob = 0.5 # TODO
+        self.flip_axis = 1
+        self.flip_matrix = torch.eye(3).float().cuda() * -1
+        self.flip_matrix[self.flip_axis, self.flip_axis] = 1
+        self.flip_matrix = matrix_to_quaternion(self.flip_matrix.unsqueeze(0))
         self.setup_functions()
         if state_dict is not None:
             # 从checkpoint恢复训练时，需要restore全部状态
@@ -311,15 +316,14 @@ class GaussianModel:
             self.obj_rots = torch.cat(self.obj_rots, dim=0)
             self.obj_trans = torch.cat(self.obj_trans, dim=0)  
             
-            # self.flip_mask = []
-            # for obj_name in self.visible_objects:
-            #     obj_model: GaussianModelActor = getattr(self, obj_name)
-            #     if obj_model.deformable or self.flip_prob == 0:
-            #         flip_mask = torch.zeros_like(obj_model.get_xyz[:, 0]).bool()
-            #     else:
-            #         flip_mask = torch.rand_like(obj_model.get_xyz[:, 0]) < self.flip_prob
-            #     self.flip_mask.append(flip_mask)
-            # self.flip_mask = torch.cat(self.flip_mask, dim=0)
+            self.flip_mask = []
+            for i, obj_model in enumerate(self.visible_objects):
+                if obj_model.deformable or self.flip_prob == 0:
+                    flip_mask = torch.zeros_like(obj_model.get_xyz[:, 0]).bool()
+                else:
+                    flip_mask = torch.rand_like(obj_model.get_xyz[:, 0]) < self.flip_prob
+                self.flip_mask.append(flip_mask)
+            self.flip_mask = torch.cat(self.flip_mask, dim=0)
 
     @property
     def get_scaling(self):
@@ -357,7 +361,7 @@ class GaussianModel:
 
             rotations_local = torch.cat(rotations_local, dim=0)
             rotations_local = rotations_local.clone()
-            # rotations_local[self.flip_mask] = quaternion_raw_multiply(self.flip_matrix, rotations_local[self.flip_mask])
+            rotations_local[self.flip_mask] = quaternion_raw_multiply(self.flip_matrix, rotations_local[self.flip_mask])
             rotations_obj = quaternion_raw_multiply(self.obj_rots, rotations_local)
             rotations_obj = torch.nn.functional.normalize(rotations_obj)
             rotations.append(rotations_obj)
@@ -381,7 +385,7 @@ class GaussianModel:
 
             xyzs_local = torch.cat(xyzs_local, dim=0)
             xyzs_local = xyzs_local.clone()
-            # xyzs_local[self.flip_mask, self.flip_axis] *= -1
+            xyzs_local[self.flip_mask, self.flip_axis] *= -1
             obj_rots = quaternion_to_matrix(self.obj_rots)
             xyzs_obj = torch.einsum('bij, bj -> bi', obj_rots, xyzs_local) + self.obj_trans
             xyzs.append(xyzs_obj)
