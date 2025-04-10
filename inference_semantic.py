@@ -127,6 +127,7 @@ if __name__ == "__main__":
     op = OptimizationParams(parser).extract(args)
     model_params = ModelParams(parser).extract(args)
     model_params.sh_degree = 3
+    model_params.preload_all_cams = False
     model_params.cam_shift = parse_cam_offset(args.cam_shift)
     pipeline_params = PipelineParams(parser).extract(args)
     pipeline_params.debug = False
@@ -152,6 +153,7 @@ if __name__ == "__main__":
         visible_obj_names = parse_visible_obj_names(args.visible_obj_ids)
         replacements = parse_visible_obj_replacements(args.visible_obj_replacements)
         for idx, camera in enumerate(tqdm(cameras, desc="Rendering...")):
+            camera.to_cuda()
             rgb_gt = (camera.original_image[:3].detach().cpu().numpy().transpose(1, 2, 0) * 255).astype(np.uint8)
             gaussians.set_visible_dynamic_object_names('all')
             gaussians.replace_inference_models({})

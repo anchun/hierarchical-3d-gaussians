@@ -70,7 +70,7 @@ def load_scene(args, model_params):
     gaussians = GaussianModel(model_params, scene_info, scene_info.scene_meta,
                               num_camera_poses=len(scene_info.train_cameras),
                               use_camera_pose_correction=False,
-                              num_classes=2, state_dict=state_dict, saved_ply_folder=saved_ply_folder)
+                              num_classes=10, state_dict=state_dict, saved_ply_folder=saved_ply_folder)
     scene = Scene(model_params, scene_info, gaussians)
     return scene, gaussians
 
@@ -121,6 +121,7 @@ if __name__ == "__main__":
     op = OptimizationParams(parser).extract(args)
     model_params = ModelParams(parser).extract(args)
     model_params.sh_degree = 3
+    model_params.preload_all_cams = False
     pipeline_params = PipelineParams(parser).extract(args)
     pipeline_params.debug = False
     pipeline_params.compute_cov3D_python = False
@@ -146,6 +147,7 @@ if __name__ == "__main__":
         replacements = parse_visible_obj_replacements(args.visible_obj_replacements)
         shifts = parse_visible_obj_shifts(args.shifts)
         for idx, camera in enumerate(tqdm(cameras, desc="Rendering...")):
+            camera.to_cuda()
             rgb_gt = (camera.original_image[:3].detach().cpu().numpy().transpose(1, 2, 0) * 255).astype(np.uint8)
             gaussians.set_visible_dynamic_object_names('all')
             gaussians.replace_inference_models({})
@@ -161,8 +163,8 @@ if __name__ == "__main__":
             render_result = render(camera, gaussians, pipeline_params, background, indices=None, use_trained_exp=False)
             remove_some_and_replace_one = (render_result['render'].detach().cpu().numpy().transpose(1, 2, 0) * 255).astype(np.uint8)
             gaussians.shift_dynamic_objects({})
-            remove_some_and_replace_one_img = Image.fromarray(remove_some_and_replace_one, mode='L')
-            remove_some_and_replace_one_img.save(os.path.join(semantic_output_folder, f'{idx:06d}.jpg'))
+            # remove_some_and_replace_one_img = Image.fromarray(remove_some_and_replace_one, mode='L')
+            # remove_some_and_replace_one_img.save(os.path.join(semantic_output_folder, f'{idx:06d}.jpg'))
 
             # semantic_gt = camera.semantic.detach().cpu().numpy().transpose(1, 2, 0)
             # semantic_inferenced = to_semantic_class(render_result['semantic'])
