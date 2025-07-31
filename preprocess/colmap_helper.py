@@ -39,6 +39,7 @@ def get_init_cameraparams(camera_params, modelId=0):
 def update_db_for_colmap_models(db, model_path):
     # read camera info
     camera_ids = []
+    cameras = []
     camera_images = {}
     cameras_file = posixpath.join(model_path, "cameras.txt")
     with open(cameras_file, "r") as fid:
@@ -66,9 +67,10 @@ def update_db_for_colmap_models(db, model_path):
             if cx_ratio > 0.1 or cy_ratio > 0.1:
                 print("cx or cy value invalid!")
                 sys.exit(-1)
+            db.add_camera(camModelDict[camera_model], w, h, params, prior_focal_length=True, camera_id=len(camera_ids))
             camera_ids.append(camera_id)
+            cameras.append([camera_id, w, h, fx, fy, cx, cy])
             camera_images[camera_id] = []
-            db.add_camera(camModelDict[camera_model], w, h, params, prior_focal_length=True, camera_id=camera_id)
 
     # read image info.
     images_file = posixpath.join(model_path, "images.txt")
@@ -92,28 +94,41 @@ def update_db_for_colmap_models(db, model_path):
 
     # add db and update image_id with new sequence
     count = 0
-    for camera_id in camera_ids:
+    for camera_idx, camera_id in enumerate(camera_ids):
         for camera_image in camera_images[camera_id]:
             camera_image['image_id'] = count
-            db.add_image(camera_image['image_name'], camera_id, camera_image['prior_q'], camera_image['prior_t'],
+            db.add_image(camera_image['image_name'], camera_idx, camera_image['prior_q'], camera_image['prior_t'],
                          image_id=camera_image['image_id'])
             count += 1
 
-    # refine image txt with new id
+    # refine cameras.txt with new id
+    if len(cameras) > 0:
+        HEADER = '# # Camera list with one line of data per camera:\n' + \
+                 "#   CAMERA_ID, MODEL, WIDTH, HEIGHT, PARAMS[]\n" + \
+                 "# Number of cameras: {}\n".format(count)
+        with open(cameras_file, "w") as fid:
+            fid.write(HEADER)
+            for idx, camera in enumerate(cameras):
+                camera_id, w, h, fx, fy, cx, cy = camera
+                camera_header = [idx, "PINHOLE", w, h, fx, fy, cx, cy]
+                first_line = " ".join(map(str, camera_header))
+                fid.write(first_line + "\n")
+                    
+    # refine images.txt with new id
     if len(camera_images) > 0:
-        HEADER = '# Images list with two lines of data per image:n' + \
+        HEADER = '# Images list with two lines of data per image:\n' + \
                  "#   Images_ID, QW, QX, QY, QZ, TX, TY, TZ, CAMERA_ID, NAME\n" + \
                  "#   POINTS2D[] AS (X, Y, POINT3D_ID)\n" + \
                  "# Number of images: {}, mean obersevation per image: {}\n".format(count, 0)
         with open(images_file, "w") as fid:
             fid.write(HEADER)
-            for idx in range(len(camera_images[0])):
-                for camera_id in camera_ids:
+            for idx in range(len(camera_images[camera_ids[0]])):
+                for camera_idx, camera_id in enumerate(camera_ids):
                     camera_image = camera_images[camera_id][idx]
                     image_header = [camera_image['image_id'], camera_image['prior_q'][0], camera_image['prior_q'][1],
                                     camera_image['prior_q'][2], camera_image['prior_q'][3],
                                     camera_image['prior_t'][0], camera_image['prior_t'][1], camera_image['prior_t'][2],
-                                    camera_id, camera_image['image_name']]
+                                    camera_idx, camera_image['image_name']]
                     first_line = " ".join(map(str, image_header))
                     fid.write(first_line + "\n")
                     fid.write("\n")
