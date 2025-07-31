@@ -3,7 +3,7 @@ import logging
 import os
 import shutil
 import sys
-
+import argparse
 import cv2
 import numpy as np
 import random
@@ -69,7 +69,7 @@ def undistorted_image_and_intrinsics(spath):
             newK[0, 2], newK[1, 2] = w / 2, h / 2
             undistorted_image = undistorted_image[y:y + h, x:x + w]
             # output image
-            distorted_intrinsics[camera_name] = K
+            distorted_intrinsics[camera_name] = newK
             distorted_w[camera_name] = w
             distorted_h[camera_name] = h
             cv2.imwrite(os.path.join(camera_output_image_path, filename), undistorted_image, [int(cv2.IMWRITE_JPEG_QUALITY), 100])
@@ -95,9 +95,10 @@ def undistorted_image_and_intrinsics(spath):
 
 
 if __name__ == '__main__':
-
-    baseurl=r'D:\data\scene_004'
-    undistorted_image_and_intrinsics(baseurl)
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--project_dir', type=str, required=True)
+    args = parser.parse_args()
+    undistorted_image_and_intrinsics(args.project_dir)
 
 
 
