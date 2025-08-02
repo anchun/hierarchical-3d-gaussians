@@ -16,14 +16,14 @@ from joblib import delayed, Parallel
 import json
 from read_write_model import *
 
-def get_scales(key, cameras, images, points3d_ordered, args):
+def get_scales(key, cameras, images, points3d_ordered, points3d_masks, args):
     image_meta = images[key]
     cam_intrinsic = cameras[image_meta.camera_id]
 
     pts_idx = images_metas[key].point3D_ids
 
-    mask = pts_idx >= 0
-    mask *= pts_idx < len(points3d_ordered)
+    pts_idx[pts_idx>=len(points3d_ordered)] = -1    # remove points3d that are not in the sparse model
+    mask = (pts_idx >= 0) & points3d_masks[pts_idx]  # mask for valid points3d
 
     pts_idx = pts_idx[mask]
     valid_xys = image_meta.xys[mask]
@@ -88,10 +88,12 @@ if __name__ == '__main__':
     pts_xyzs = np.array([points3d[key].xyz for key in points3d])
     points3d_ordered = np.zeros([pts_indices.max()+1, 3])
     points3d_ordered[pts_indices] = pts_xyzs
+    points3d_masks = np.zeros([pts_indices.max()+1], dtype=bool)
+    points3d_masks[pts_indices] = True
 
     # depth_param_list = [get_scales(key, cam_intrinsics, images_metas, points3d_ordered, args) for key in images_metas]
     depth_param_list = Parallel(n_jobs=-1, backend="threading")(
-        delayed(get_scales)(key, cam_intrinsics, images_metas, points3d_ordered, args) for key in images_metas
+        delayed(get_scales)(key, cam_intrinsics, images_metas, points3d_ordered, points3d_masks, args) for key in images_metas
     )
 
     depth_params = {
