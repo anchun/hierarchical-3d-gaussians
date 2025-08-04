@@ -16,7 +16,7 @@ import argparse
 from exif import Image
 from numpy import sort
 from sklearn.neighbors import NearestNeighbors
-
+from scipy.spatial.transform import Rotation as R
 from database import COLMAPDatabase
 
 
@@ -85,8 +85,8 @@ def get_all_images(db: COLMAPDatabase, cam_name_list: list):
         images_list[cname] = []
     entries = db.execute("SELECT * FROM images")
     for image_id, name, camera_id, qw, qx, qy, qz, tx, ty, tz in entries:
-        #print(camera_id)
-        images_list[name] = [tx, ty, tz]
+        R_mat = R.from_quat([qx, qy, qz, qw]).as_matrix()
+        images_list[name] = -R_mat.T @ [tx, ty, tz]
         #images_list[name].append({'image_id':image_id, 'image_name':name, 'translation': [tx, ty, tz], 'rotation': [qx, qy, qz, qw]})
     return images_list
 
@@ -119,19 +119,13 @@ if __name__ == '__main__':
 
     matches_str = []
     def add_match(cam_id, matched_cam_id, current_image_file, matched_frame_id):
-        # REMOVE AFTER
-        # if (cam_folder_list[cam_id + matched_cam_id] == "backleft") and (not cam_folder_list[cam_id] == "backleft") and (matched_frame_id >= 785):
-        #     matched_frame_id -= 647
-        # if (not cam_folder_list[cam_id + matched_cam_id] == "backleft") and (cam_folder_list[cam_id] == "backleft") and (matched_frame_id >= 785):
-        #     matched_frame_id += 647
-
         if matched_frame_id < len(matched_cam['images']):
             matched_image_file = matched_cam['images'][matched_frame_id]
-            matches_str.append(f"{cam_folder_list[cam_id]}/{current_image_file} {cam_folder_list[cam_id + matched_cam_id]}/{matched_image_file}\n")
+            matches_str.append(f"{cam_folder_list[cam_id]}/{current_image_file} {cam_folder_list[matched_cam_id]}/{matched_image_file}\n")
 
 
     for cam_id, current_cam in enumerate(image_files_organised):
-        for matched_cam_id, matched_cam in enumerate(image_files_organised[cam_id:]):
+        for matched_cam_id, matched_cam in enumerate(image_files_organised):
             for current_image_id, current_image_file in enumerate(current_cam['images']):
                 for frame_step in range(args.n_seq_matches_per_view):
                     matched_frame_id = current_image_id + frame_step

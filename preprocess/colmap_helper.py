@@ -95,6 +95,9 @@ def update_db_for_colmap_models(db, model_path):
     # add db and update image_id with new sequence
     count = 0
     for camera_idx, camera_id in enumerate(camera_ids):
+        # sort by name first
+        camera_images[camera_id].sort(key=lambda x: x['image_name'])
+        # add images to db
         for camera_image in camera_images[camera_id]:
             camera_image['image_id'] = count
             db.add_image(camera_image['image_name'], camera_idx, camera_image['prior_q'], camera_image['prior_t'],
@@ -105,7 +108,7 @@ def update_db_for_colmap_models(db, model_path):
     if len(cameras) > 0:
         HEADER = '# # Camera list with one line of data per camera:\n' + \
                  "#   CAMERA_ID, MODEL, WIDTH, HEIGHT, PARAMS[]\n" + \
-                 "# Number of cameras: {}\n".format(count)
+                 "# Number of cameras: {}\n".format(len(cameras))
         with open(cameras_file, "w") as fid:
             fid.write(HEADER)
             for idx, camera in enumerate(cameras):
