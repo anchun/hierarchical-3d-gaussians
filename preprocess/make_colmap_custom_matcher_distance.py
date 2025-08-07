@@ -64,23 +64,29 @@ if __name__ == '__main__':
     ])
     n_neighbours = min(args.n_neighbours, len(cam_centers))
     cam_nbrs = NearestNeighbors(n_neighbors=n_neighbours).fit(cam_centers)
-
-    def get_matches(key, cam_center):
+    matches_str = []
+    
+    def add_matches(key, cam_center):
         _, indices = cam_nbrs.kneighbors(cam_center[None])
         matches = ""
         keys = list(images_metas.keys())
         for idx in indices[0, 1:]:
-            matches += f"{images_metas[key].name} {images_metas[keys[idx]].name}\n" 
-        return matches
+            matches_str.append(f"{images_metas[key].name} {images_metas[keys[idx]].name}\n")
 
-    matches = [get_matches(key, cam_center) for key, cam_center in zip(images_metas, cam_centers)]
-    # matches = Parallel(n_jobs=-1, backend="threading")(
-    #     delayed(get_matches)(key, cam_center) for key, cam_center in zip(images_metas, cam_centers)
-    # )
+    for key, cam_center in zip(images_metas, cam_centers):
+        add_matches(key, cam_center)
 
-    matches_str = []
-    for match in matches:
-        matches_str.append(match)
+    print(f"Total matches before removing duplicates: {len(matches_str)}")
+    matches_dict = {}
+    for match in matches_str:
+        match_first = match.split(' ')[0]
+        match_second = match.split(' ')[1][:-1]
+        reverse_match = f"{match_second} {match_first}\n"
+        if match_first != match_second and match not in matches_dict and reverse_match not in matches_dict:
+            matches_dict[match] = 1
+    
+    out_matches = list(matches_dict.keys())
+    print(f"Total matches after removing duplicates: {len(out_matches)}")
 
     with open(f"{args.base_dir}/matching_{args.n_neighbours}.txt", "w") as f:
-        f.write(''.join(matches_str))
+        f.write(''.join(out_matches))

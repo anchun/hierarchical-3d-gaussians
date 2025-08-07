@@ -13,6 +13,7 @@ import os, sys
 import subprocess
 import argparse
 import time, platform
+import shutil
 
 def submit_job(slurm_args):
     """Submit a job using sbatch and return the job ID."""    
@@ -47,10 +48,10 @@ if __name__ == '__main__':
     parser.add_argument('--global_colmap_dir', default="")
     parser.add_argument('--chunks_dir', default="")
     parser.add_argument('--chunk_size', default=100, type=float)
-    parser.add_argument('--use_slurm', action="store_true", default=False)
     parser.add_argument('--skip_bundle_adjustment', action="store_true", default=False)
     parser.add_argument('--keep_raw_chunks', action="store_true", default=False)
-    parser.add_argument('--n_jobs', type=int, default=8, help="Run per chunk COLMAP in parallel on the same machine. Does not handle multi GPU systems. --use_slurm overrides this.")
+    parser.add_argument('--with_mvs', action="store_true", default=False)
+    parser.add_argument('--n_jobs', type=int, default=8, help="Run per chunk COLMAP in parallel on the same machine. Does not handle multi GPU systems.")
     args = parser.parse_args()
     
     images_dir, colmap_dir, chunks_dir = setup_dirs(
@@ -59,10 +60,6 @@ if __name__ == '__main__':
         args.project_dir
     ) 
 
-    if args.use_slurm:
-        slurm_args = [
-            "sbatch" 
-        ]
     submitted_jobs = []
 
     start_time = time.time()
@@ -90,21 +87,13 @@ if __name__ == '__main__':
         in_dir = os.path.join(chunks_dir, "raw_chunks", chunk_name)
         out_dir = os.path.join(chunks_dir, "chunks", chunk_name)
 
-        if args.use_slurm:
-            # Process chunks in parallel
-            job = submit_job(slurm_args + [
-                f"--error={in_dir}/log.err", f"--output={in_dir}/log.out",
-                "preprocess/prepare_chunk.slurm", in_dir, out_dir,images_dir,
-                os.path.dirname(os.path.realpath(__file__))
-                ])
-            submitted_jobs.append(job)
-        else:
-            try:
-                if len(submitted_jobs) >= args.n_jobs:
-                    submitted_jobs.pop(0).communicate()
-                intermediate_dir = os.path.join(in_dir, "bundle_adjustment")
-                if os.path.exists(intermediate_dir):
-                    print(f"{intermediate_dir} exists! Per chunk triangulation might crash!")
+        try:
+            if len(submitted_jobs) >= args.n_jobs:
+                submitted_jobs.pop(0).communicate()
+            intermediate_dir = os.path.join(in_dir, "bundle_adjustment")
+            if os.path.exists(intermediate_dir):
+                print(f"{intermediate_dir} exists! Per chunk triangulation might crash!")
+            if len(chunk_names) > 1:
                 prepare_chunk_args = [
                         "python", f"preprocess/prepare_chunk.py",
                         "--raw_chunk", in_dir, "--out_chunk", out_dir, 
@@ -121,35 +110,48 @@ if __name__ == '__main__':
                 n_processed += 1
                 print(f"Launched triangulation for [{n_processed} / {len(chunk_names)} chunks].")
                 print(f"Logs in {in_dir}/log.err (or .out)")
-            except subprocess.CalledProcessError as e:
-                print(f"Error executing prepare_chunk.py: {e}")
-                sys.exit(1)
+            else:
+                # if only one chunk, just copy from global for performance
+                os.makedirs(out_dir, exist_ok=True)
+                shutil.copyfile(f"{in_dir}/center.txt", f"{out_dir}/center.txt")
+                shutil.copyfile(f"{in_dir}/extent.txt", f"{out_dir}/extent.txt")
+                os.makedirs(f"{out_dir}/sparse/0", exist_ok=True)
+                shutil.copyfile(f"{colmap_dir}/sparse/0/cameras.bin", f"{out_dir}/sparse/0/cameras.bin")
+                shutil.copyfile(f"{colmap_dir}/sparse/0/images.bin", f"{out_dir}/sparse/0/images.bin")
+                shutil.copyfile(f"{colmap_dir}/sparse/0/points3D.bin", f"{out_dir}/sparse/0/points3D.bin")
+                if args.with_mvs:
+                    shutil.copyfile(f"{colmap_dir}/sparse/0/cameras.bin", f"{out_dir}/sparse/cameras.bin")
+                    shutil.copyfile(f"{colmap_dir}/sparse/0/images.bin", f"{out_dir}/sparse/images.bin")
+                    shutil.copyfile(f"{colmap_dir}/sparse/0/points3D.bin", f"{out_dir}/sparse/points3D.bin")
+                    convert_to_mvs_args = [
+                            "InterfaceCOLMAP", 
+                            "-w", f"{out_dir}",
+                            "-i", ".",
+                            "-o", "./openmvs_scene.mvs",
+                            "--image-folder", "../../rectified/images",
+                        ]
+                    try:
+                        subprocess.run(convert_to_mvs_args, check=True)
+                    except subprocess.CalledProcessError as e:
+                        print(f"Error executing InterfaceCOLMAP: {e}")
+                    densify_pointcloud_args = [
+                            "DensifyPointCloud", "./openmvs_scene.mvs",
+                            "-w", f"{out_dir}",
+                            "--remove-dmaps", "1",
+                            "-o", "./points3D.ply"
+                        ]
+                    try:
+                        subprocess.run(densify_pointcloud_args, check=True)
+                    except subprocess.CalledProcessError as e:
+                        print(f"Error executing DensifyPointCloud: {e}")
+                    shutil.copyfile(f"{out_dir}/points3D.ply", f"{out_dir}/sparse/0/points3D.ply")
+        except subprocess.CalledProcessError as e:
+            print(f"Error executing prepare_chunk.py: {e}")
+            sys.exit(1)
 
 
-    if args.use_slurm:
-        # Check every 10 sec all the jobs status
-        all_finished = False
-        all_status = []
-        last_count = 0
-        print(f"Waiting for chunks processed in parallel to be done ...")
-
-        while not all_finished:
-            # print("Checking status of all jobs...")
-            all_status = [is_job_finished(id) for id in submitted_jobs if is_job_finished(id) != ""]
-            if last_count != all_status.count("COMPLETED"):
-                last_count = all_status.count("COMPLETED")
-                print(f"processed [{last_count} / {len(chunk_names)} chunks].")
-
-            all_finished = len(all_status) == len(submitted_jobs)
-    
-            if not all_finished:
-                time.sleep(10)  # Wait before checking again
-        
-        if not all(status == "COMPLETED" for status in all_status):
-            print("At least one job failed or was cancelled, check at error logs.")
-    else:
-        for job in submitted_jobs:
-            job.communicate()
+    for job in submitted_jobs:
+        job.communicate()
 
     # create chunks.txt file that concatenates all chunks center.txt and extent.txt files
     try:
@@ -165,7 +167,6 @@ if __name__ == '__main__':
 
     # remove non-needed raw_chunks if needed.
     if not args.keep_raw_chunks:
-        import shutil
         shutil.rmtree(os.path.join(chunks_dir, "raw_chunks"))
         print(f'raw_chunks folder has been deleted.')
 

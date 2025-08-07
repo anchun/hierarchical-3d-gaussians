@@ -280,27 +280,6 @@ if __name__ == '__main__':
     ## Consolidation to create final hierarchy
     hierarchy_merger_path = "submodules/gaussianhierarchy/build/Release/GaussianHierarchyMerger.exe" if os_name == "Windows" else "submodules/gaussianhierarchy/build/GaussianHierarchyMerger"
     hierarchy_merger_path = os.path.join(f_path.parent.parent, hierarchy_merger_path)
-
-    consolidation_args = [
-        hierarchy_merger_path, f"{output_dir}/trained_chunks",
-        "0", chunks_dir, f"{output_dir}/merged.hier" 
-    ]
-    
-    consolidation_args = consolidation_args + chunk_names
-    print(f"Consolidation... {consolidation_args}")
-    if args.use_slurm:
-        consolidation = submit_job(slurm_args + [
-            f"--error={output_dir}/consolidation_log.err", f"--output={output_dir}/consolidation_log.out", 
-            "consolidate.slurm"] + consolidation_args)        
-
-        while is_job_finished(consolidation) == "":
-            time.sleep(10)
-    else:
-        try:
-            subprocess.run(consolidation_args, check=True)
-        except subprocess.CalledProcessError as e:
-            print(f"Error executing consolidation: {e}")
-            sys.exit(1)
     
     if args.writing_ply:
         point_cloud_dir = os.path.join(output_dir, "point_cloud")
@@ -322,6 +301,27 @@ if __name__ == '__main__':
         else:
             try:
                 subprocess.run(writing_ply_args, check=True)
+            except subprocess.CalledProcessError as e:
+                print(f"Error executing consolidation: {e}")
+                sys.exit(1)
+    else:
+        consolidation_args = [
+            hierarchy_merger_path, f"{output_dir}/trained_chunks",
+            "0", chunks_dir, f"{output_dir}/merged.hier" 
+        ]
+        
+        consolidation_args = consolidation_args + chunk_names
+        print(f"Consolidation... {consolidation_args}")
+        if args.use_slurm:
+            consolidation = submit_job(slurm_args + [
+                f"--error={output_dir}/consolidation_log.err", f"--output={output_dir}/consolidation_log.out", 
+                "consolidate.slurm"] + consolidation_args)        
+
+            while is_job_finished(consolidation) == "":
+                time.sleep(10)
+        else:
+            try:
+                subprocess.run(consolidation_args, check=True)
             except subprocess.CalledProcessError as e:
                 print(f"Error executing consolidation: {e}")
                 sys.exit(1)

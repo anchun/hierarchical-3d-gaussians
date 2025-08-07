@@ -15,6 +15,9 @@ import subprocess
 import argparse
 import time, platform
 import numpy as np
+from pathlib import Path
+from hloc import extract_features, match_features, triangulation, reconstruction
+from scipy.spatial.transform import Rotation as R
 from read_write_model import read_images_binary,write_images_binary, Image
 from database import COLMAPDatabase
 from colmap_helper import update_db_for_colmap_models
@@ -62,7 +65,7 @@ if __name__ == '__main__':
     parser.add_argument('--images_dir', default="", help="Will be set to project_dir/inputs/images if not set")
     parser.add_argument('--masks_dir', default="", help="Will be set to project_dir/inputs/masks if exists and not set")
     parser.add_argument('--depths_dir', default="", help="Will be set to project_dir/inputs/depths if exists and not set")
-    parser.add_argument('--pose_optim_rounds', type=int, default=2, help="set the pose optimization rounds for point_triangulator and bundle_adjuster")
+    parser.add_argument('--pose_optim_rounds', type=int, default=1, help="set the pose optimization rounds for point_triangulator and bundle_adjuster")
     args = parser.parse_args()
     
     if args.images_dir == "":
@@ -88,9 +91,10 @@ if __name__ == '__main__':
     setup_dirs(args.project_dir)
 
     #init db
-    db_filepath = f"{args.project_dir}/camera_calibration/unrectified/database.db"
+    db_filepath = Path(f"{args.project_dir}/camera_calibration/unrectified/database.db")
     model_dir = f"{args.images_dir}/../sparse/0/"
-    if not os.path.exists(db_filepath):
+    newly_created_db = not db_filepath.exists()
+    if newly_created_db:
         db = COLMAPDatabase.connect(db_filepath)
         db.create_tables()
         # update db from colmap txts which located in the parent folder of images_dir as default
@@ -98,50 +102,37 @@ if __name__ == '__main__':
         db.commit()
         db.close()
     
+    print("Extracting features and matches...")
+    feature_conf = extract_features.confs["aliked-n16"]
+    matcher_conf = match_features.confs["aliked+lightglue"]
+    features = Path(f"{args.project_dir}/camera_calibration/unrectified/features.h5")
+    matches = Path(f"{args.project_dir}/camera_calibration/unrectified/matches.h5")
+    sfm_pairs = Path(f"{args.project_dir}/camera_calibration/unrectified/matching.txt")
+    image_ids = reconstruction.get_image_ids(db_filepath)
     
-    ## Feature extraction, matching then mapper to generate the colmap.
-    print("extracting features ...")
-    colmap_feature_extractor_args = [
-        colmap_exe, "feature_extractor",
-        "--database_path", db_filepath,
-        "--image_path", f"{args.images_dir}",
-        "--ImageReader.single_camera_per_folder", "1",
-        "--ImageReader.default_focal_length_factor", "0.5",
-        "--ImageReader.camera_model", "OPENCV",
+    if not features.exists():
+        extract_features.main(feature_conf, Path(args.images_dir), image_list=image_ids.keys(), feature_path=features)
+    if not sfm_pairs.exists():
+        print("making custom matches...")
+        make_colmap_custom_matcher_args = [
+            "python", f"preprocess/make_colmap_custom_matcher.py",
+            "--image_path", f"{args.images_dir}",
+            "--database_path", db_filepath,
+            "--output_path", sfm_pairs,
+            "--n_seq_matches_per_view",f"20"
         ]
+        try:
+            subprocess.run(make_colmap_custom_matcher_args, check=True)
+        except subprocess.CalledProcessError as e:
+            print(f"Error executing make_colmap_custom_matcher: {e}")
+            sys.exit(1)
+    if not matches.exists():
+        match_features.main(matcher_conf, sfm_pairs, features=features, matches=matches)
     
-    try:
-        subprocess.run(colmap_feature_extractor_args, check=True)
-    except subprocess.CalledProcessError as e:
-        print(f"Error executing colmap feature_extractor: {e}")
-        sys.exit(1)
-
-    print("making custom matches...")
-    make_colmap_custom_matcher_args = [
-        "python", f"preprocess/make_colmap_custom_matcher.py",
-        "--image_path", f"{args.images_dir}",
-        "--database_path", f"{args.project_dir}/camera_calibration/unrectified/database.db",
-        "--output_path", f"{args.project_dir}/camera_calibration/unrectified/matching.txt",
-        "--n_seq_matches_per_view",f"20"
-    ]
-    try:
-        subprocess.run(make_colmap_custom_matcher_args, check=True)
-    except subprocess.CalledProcessError as e:
-        print(f"Error executing make_colmap_custom_matcher: {e}")
-        sys.exit(1)
-
-    ## Feature matching
-    print("matching features...")
-    colmap_matches_importer_args = [
-        colmap_exe, "matches_importer",
-        "--database_path", db_filepath,
-        "--match_list_path", f"{args.project_dir}/camera_calibration/unrectified/matching.txt"
-        ]
-    try:
-        subprocess.run(colmap_matches_importer_args, check=True)
-    except subprocess.CalledProcessError as e:
-        print(f"Error executing colmap matches_importer: {e}")
-        sys.exit(1)
+    if newly_created_db:
+        triangulation.import_features(image_ids, db_filepath, features)
+        min_match_score = 0.3
+        triangulation.import_matches(image_ids,db_filepath, sfm_pairs, matches, min_match_score, True)
 
     # copy from input to unrectified for triangulate
     print("model converter...")

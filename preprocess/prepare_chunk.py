@@ -23,7 +23,7 @@ if __name__ == '__main__':
     parser.add_argument('--skip_bundle_adjustment', action="store_true", default=False)
     args = parser.parse_args()
 
-    matching_nb = 50 if args.skip_bundle_adjustment else 200
+    matching_nb = 120
     colmap_exe = "colmap"
     if platform.system() == "Windows":
         try:
@@ -99,7 +99,8 @@ if __name__ == '__main__':
         "--image_path", f"{bundle_adj_chunk}/images",
         "--ImageReader.mask_path", f"{bundle_adj_chunk}/masks",
         "--ImageReader.single_camera_per_folder", "1",
-        "--ImageReader.existing_camera_id", "1",
+        "--ImageReader.default_focal_length_factor", "0.5",
+        "--ImageReader.camera_model", "OPENCV",
         ]
     
     try:
@@ -112,7 +113,9 @@ if __name__ == '__main__':
     colmap_matches_importer_args = [
         colmap_exe, "matches_importer",
         "--database_path", f"{bundle_adj_chunk}/database.db",
-        "--match_list_path", f"{bundle_adj_chunk}/matching_{matching_nb}.txt"
+        "--match_list_path", f"{bundle_adj_chunk}/matching_{matching_nb}.txt",
+        "--SiftMatching.max_ratio", "0.7",
+        "--SiftMatching.max_distance", "0.7",
         ]
     try:
         subprocess.run(colmap_matches_importer_args, check=True)

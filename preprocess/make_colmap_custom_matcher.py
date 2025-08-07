@@ -16,8 +16,7 @@ import argparse
 from exif import Image
 from numpy import sort
 from sklearn.neighbors import NearestNeighbors
-from scipy.spatial.transform import Rotation as R
-from database import COLMAPDatabase
+from database import COLMAPDatabase, blob_to_array
 
 
 #TODO: clean it
@@ -53,12 +52,10 @@ def image_coordinates_pose(images_list,image_name):
         return None
 
 
-def get_matches(img_name, cam_center, cam_nbrs, img_names_gps):
+def add_matches(matches_str, img_name, cam_center, cam_nbrs, img_names_gps):
     _, indices = cam_nbrs.kneighbors(cam_center[None])
-    matches = ""
     for idx in indices[0, 1:]:
-        matches += f"{img_name} {img_names_gps[idx]}\n" 
-    return matches
+        matches_str.append(f"{img_name} {img_names_gps[idx]}\n")
 
 def find_images_names(root_dir):
     image_files_by_subdir = []
@@ -83,11 +80,9 @@ def get_all_images(db: COLMAPDatabase, cam_name_list: list):
     images_list = {}
     for cname in cam_name_list:
         images_list[cname] = []
-    entries = db.execute("SELECT * FROM images")
-    for image_id, name, camera_id, qw, qx, qy, qz, tx, ty, tz in entries:
-        R_mat = R.from_quat([qx, qy, qz, qw]).as_matrix()
-        images_list[name] = -R_mat.T @ [tx, ty, tz]
-        #images_list[name].append({'image_id':image_id, 'image_name':name, 'translation': [tx, ty, tz], 'rotation': [qx, qy, qz, qw]})
+    entries = db.execute("SELECT images.image_id, name, position FROM images, pose_priors where images.image_id = pose_priors.image_id")
+    for image_id, name, position in entries:
+        images_list[name] = blob_to_array(position, np.float64)
     return images_list
 
 if __name__ == '__main__':
@@ -100,7 +95,7 @@ if __name__ == '__main__':
     parser.add_argument('--n_loop_closure_match_per_view', default=5, type=int)
     parser.add_argument('--loop_matches', default=[], type=int)
     parser.add_argument('--n_gps_neighbours', default=0, type=int)
-    parser.add_argument('--n_pose_neighbours', default=140, type=int)
+    parser.add_argument('--n_pose_neighbours', default=120, type=int)
     args = parser.parse_args()
 
 
@@ -162,8 +157,8 @@ if __name__ == '__main__':
         cam_centers = np.array(cam_centers_gps)
         cam_nbrs = NearestNeighbors(n_neighbors=args.n_gps_neighbours).fit(cam_centers) if cam_centers.size else []
 
-        matches_str += [get_matches(img_name, cam_center, cam_nbrs, img_names_gps) for img_name, cam_center in zip(img_names_gps, cam_centers)]
-
+        for img_name, cam_center in zip(img_names_gps, cam_centers):
+            add_matches(matches_str, img_name, cam_center, cam_nbrs, img_names_gps)
 
     ## Add Pose matches
     if args.n_pose_neighbours > 0:
@@ -181,18 +176,21 @@ if __name__ == '__main__':
         cam_centers = np.array(cam_centers_gps)
         cam_nbrs = NearestNeighbors(n_neighbors=args.n_pose_neighbours).fit(cam_centers) if cam_centers.size else []
 
-        matches_str += [get_matches(img_name, cam_center, cam_nbrs, img_names_gps) for img_name, cam_center in zip(img_names_gps, cam_centers)]
-
+        for img_name, cam_center in zip(img_names_gps, cam_centers):
+            add_matches(matches_str, img_name, cam_center, cam_nbrs, img_names_gps)
 
     ## Remove duplicate matches
-    intermediate_out_matches = list(dict.fromkeys(matches_str))
-    reciproc_matches = [f"{match.split(' ')[1][:-1]} {match.split(' ')[0]}\n" for match in intermediate_out_matches]
-    reciproc_matches_dict = dict.fromkeys(reciproc_matches)
-    out_matches = [
-        match for match in intermediate_out_matches
-        if not match in reciproc_matches_dict
-        ]
-
+    print(f"Total matches before removing duplicates: {len(matches_str)}")
+    matches_dict = {}
+    for match in matches_str:
+        match_first = match.split(' ')[0]
+        match_second = match.split(' ')[1][:-1]
+        reverse_match = f"{match_second} {match_first}\n"
+        if match_first != match_second and match not in matches_dict and reverse_match not in matches_dict:
+            matches_dict[match] = 1
+    
+    out_matches = list(matches_dict.keys())
+    print(f"Total matches after removing duplicates: {len(out_matches)}")
     # with open(f"{args.image_path}/TEST_new_{args.n_seq_matches_per_view}_{args.n_quad_matches_per_view}_{args.n_loop_closure_match_per_view}_{args.n_gps_neighbours}.txt", "w") as f:
     with open(args.output_path, "w") as f:
         f.write(''.join(out_matches))

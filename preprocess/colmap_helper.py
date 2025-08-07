@@ -2,6 +2,8 @@ import os, sys, shutil
 import posixpath
 import numpy as np
 from database import COLMAPDatabase
+from scipy.spatial.transform import Rotation as R
+
 camModelDict = {'SIMPLE_PINHOLE': 0,
                 'PINHOLE': 1,
                 'SIMPLE_RADIAL': 2,
@@ -100,8 +102,10 @@ def update_db_for_colmap_models(db, model_path):
         # add images to db
         for camera_image in camera_images[camera_id]:
             camera_image['image_id'] = count
-            db.add_image(camera_image['image_name'], camera_idx, camera_image['prior_q'], camera_image['prior_t'],
-                         image_id=camera_image['image_id'])
+            db.add_image(camera_image['image_name'], camera_idx, image_id=camera_image['image_id'])
+            R_mat = R.from_quat(camera_image['prior_q']).as_matrix()
+            pose_world = -R_mat.T @ camera_image['prior_t']
+            db.add_pose_prior(camera_image['image_id'], pose_world, 1) # "WGS84": 0, "CARTESIAN": 1
             count += 1
 
     # refine cameras.txt with new id

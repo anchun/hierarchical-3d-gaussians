@@ -92,7 +92,7 @@ if __name__ == '__main__':
     points3d_masks[pts_indices] = True
 
     # depth_param_list = [get_scales(key, cam_intrinsics, images_metas, points3d_ordered, args) for key in images_metas]
-    depth_param_list = Parallel(n_jobs=-1, backend="threading")(
+    depth_param_list = Parallel(n_jobs=1, backend="threading")(
         delayed(get_scales)(key, cam_intrinsics, images_metas, points3d_ordered, points3d_masks, args) for key in images_metas
     )
 
