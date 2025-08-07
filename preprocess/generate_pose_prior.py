@@ -254,10 +254,22 @@ if __name__ == '__main__':
         if os.path.exists(depths_target_path):
             shutil.rmtree(depths_target_path)
         shutil.copytree(args.depths_dir, depths_target_path)
-    # copy to aligned/sparse/0 without re-orient
-    shutil.copyfile(f"{args.project_dir}/camera_calibration/rectified/sparse/images.bin", f"{args.project_dir}/camera_calibration/aligned/sparse/0/images.bin")
-    shutil.copyfile(f"{args.project_dir}/camera_calibration/rectified/sparse/cameras.bin", f"{args.project_dir}/camera_calibration/aligned/sparse/0/cameras.bin")
-    shutil.copyfile(f"{args.project_dir}/camera_calibration/rectified/sparse/points3D.bin", f"{args.project_dir}/camera_calibration/aligned/sparse/0/points3D.bin")
+    # align models
+    print("aligning models...")
+    colmap_model_aligner_args = [
+        colmap_exe, "model_aligner",
+        "--database_path", db_filepath,
+        "--input_path", f"{args.project_dir}/camera_calibration/rectified/sparse", 
+        "--output_path", f"{args.project_dir}/camera_calibration/aligned/sparse/0",
+        "--ref_is_gps", "0",
+        "--alignment_type", "enu",
+        "--alignment_max_error", "3.0",
+        ]
+    try:
+        subprocess.run(colmap_model_aligner_args, check=True)
+    except subprocess.CalledProcessError as e:
+        print(f"Error executing model_aligner: {e}")
+        sys.exit(1)
 
     end_time = time.time()
     print(f"Preprocessing done in {(end_time - start_time)/60.0} minutes.")

@@ -38,7 +38,7 @@ def get_init_cameraparams(camera_params, modelId=0):
     return np.array([fx, fy, cx, cy, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0])
 
 
-def update_db_for_colmap_models(db, model_path):
+def update_db_for_colmap_models(db, model_path, pose_prior_variance=0.25):
     # read camera info
     camera_ids = []
     cameras = []
@@ -105,7 +105,8 @@ def update_db_for_colmap_models(db, model_path):
             db.add_image(camera_image['image_name'], camera_idx, image_id=camera_image['image_id'])
             R_mat = R.from_quat(camera_image['prior_q']).as_matrix()
             pose_world = -R_mat.T @ camera_image['prior_t']
-            db.add_pose_prior(camera_image['image_id'], pose_world, 1) # "WGS84": 0, "CARTESIAN": 1
+            db.add_pose_prior(camera_image['image_id'], pose_world, 1, # "WGS84": 0, "CARTESIAN": 1
+                              position_covariance = np.eye(3) * pose_prior_variance)
             count += 1
 
     # refine cameras.txt with new id
