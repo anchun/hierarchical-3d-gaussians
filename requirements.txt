@@ -12,3 +12,4 @@ hloc>=1.5
 submodules/hierarchy-rasterizer
 submodules/simple-knn
 submodules/gaussianhierarchy
+submodules/hloc

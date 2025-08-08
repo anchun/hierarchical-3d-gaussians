@@ -17,3 +17,6 @@
 [submodule "submodules/DPT"]
 	path = submodules/DPT
 	url = https://github.com/isl-org/DPT.git
+[submodule "submodules/hloc"]
+	path = submodules/hloc
+	url = https://github.com/anchun/hloc.git
