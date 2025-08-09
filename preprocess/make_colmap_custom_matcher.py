@@ -13,6 +13,7 @@ import os
 import numpy as np
 from joblib import delayed, Parallel
 import argparse
+import math
 from exif import Image
 from numpy import sort
 from sklearn.neighbors import NearestNeighbors
@@ -95,7 +96,7 @@ if __name__ == '__main__':
     parser.add_argument('--n_loop_closure_match_per_view', default=5, type=int)
     parser.add_argument('--loop_matches', default=[], type=int)
     parser.add_argument('--n_gps_neighbours', default=0, type=int)
-    parser.add_argument('--n_pose_neighbours', default=120, type=int)
+    parser.add_argument('--n_pose_neighbours', default=0, type=int)
     args = parser.parse_args()
 
 
@@ -121,6 +122,8 @@ if __name__ == '__main__':
 
     for cam_id, current_cam in enumerate(image_files_organised):
         for matched_cam_id, matched_cam in enumerate(image_files_organised):
+            if math.fabs(cam_id - matched_cam_id) > 1: # only match adjacent cameras
+                continue
             for current_image_id, current_image_file in enumerate(current_cam['images']):
                 for frame_step in range(args.n_seq_matches_per_view):
                     matched_frame_id = current_image_id + frame_step

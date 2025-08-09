@@ -12,7 +12,7 @@ import open3d as o3d
 from pathlib import Path
 from scipy.spatial.transform import Rotation
 
-camera_names = ['front-forward','left-forward','right-forward','left-backward','right-backward']
+camera_names = ['left-backward','left-forward','front-forward','right-forward','right-backward']
 camera_indexs={'front-forward':1,'left-forward':8,'right-forward':10,'left-backward':7,'right-backward':9}
 camera_name_2_id = {c:i for i,c in enumerate(camera_names)}
 

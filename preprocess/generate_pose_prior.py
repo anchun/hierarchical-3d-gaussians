@@ -104,6 +104,7 @@ if __name__ == '__main__':
     
     print("Extracting features and matches...")
     feature_conf = extract_features.confs["aliked-n16"]
+    feature_conf["preprocessing"]["resize_max"] = 1920
     matcher_conf = match_features.confs["aliked+lightglue"]
     features = Path(f"{args.project_dir}/camera_calibration/unrectified/features.h5")
     matches = Path(f"{args.project_dir}/camera_calibration/unrectified/matches.h5")
@@ -111,7 +112,7 @@ if __name__ == '__main__':
     image_ids = reconstruction.get_image_ids(db_filepath)
     
     if not features.exists():
-        extract_features.main(feature_conf, Path(args.images_dir), image_list=image_ids.keys(), feature_path=features)
+        extract_features.main(feature_conf, Path(args.images_dir), image_list=image_ids.keys(), feature_path=features, masks_dir=Path(args.masks_dir) if args.masks_dir else None)
     if not sfm_pairs.exists():
         print("making custom matches...")
         make_colmap_custom_matcher_args = [
