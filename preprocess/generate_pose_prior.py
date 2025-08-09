@@ -104,6 +104,7 @@ if __name__ == '__main__':
     
     print("Extracting features and matches...")
     feature_conf = extract_features.confs["aliked-n16"]
+    feature_conf["model"]["max_num_keypoints"] = 5000
     feature_conf["preprocessing"]["resize_max"] = 1920
     matcher_conf = match_features.confs["aliked+lightglue"]
     features = Path(f"{args.project_dir}/camera_calibration/unrectified/features.h5")
