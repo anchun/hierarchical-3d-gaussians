@@ -66,6 +66,7 @@ if __name__ == '__main__':
     parser.add_argument('--masks_dir', default="", help="Will be set to project_dir/inputs/masks if exists and not set")
     parser.add_argument('--depths_dir', default="", help="Will be set to project_dir/inputs/depths if exists and not set")
     parser.add_argument('--pose_optim_rounds', type=int, default=1, help="set the pose optimization rounds for point_triangulator and bundle_adjuster")
+    parser.add_argument('--with_camera_loop', action="store_true", default=False)
     args = parser.parse_args()
     
     if args.images_dir == "":
@@ -111,10 +112,8 @@ if __name__ == '__main__':
     matches = Path(f"{args.project_dir}/camera_calibration/unrectified/matches.h5")
     sfm_pairs = Path(f"{args.project_dir}/camera_calibration/unrectified/matching.txt")
     image_ids = reconstruction.get_image_ids(db_filepath)
-    need_import_features = newly_created_db
     if not features.exists():
         extract_features.main(feature_conf, Path(args.images_dir), image_list=image_ids.keys(), feature_path=features, masks_dir=Path(args.masks_dir) if args.masks_dir else None)
-        need_import_features = True
     if not sfm_pairs.exists():
         print("making custom matches...")
         make_colmap_custom_matcher_args = [
@@ -124,16 +123,17 @@ if __name__ == '__main__':
             "--output_path", sfm_pairs,
             "--n_seq_matches_per_view",f"20"
         ]
+        if args.with_camera_loop:
+            make_colmap_custom_matcher_args.append("--with_camera_loop")
         try:
             subprocess.run(make_colmap_custom_matcher_args, check=True)
         except subprocess.CalledProcessError as e:
             print(f"Error executing make_colmap_custom_matcher: {e}")
             sys.exit(1)
-    if not matches.exists():
-        match_features.main(matcher_conf, sfm_pairs, features=features, matches=matches)
-        need_import_features = True
+    # match are incremental, so we can run it multiple time
+    match_features.main(matcher_conf, sfm_pairs, features=features, matches=matches)
     
-    if need_import_features:
+    if newly_created_db:
         triangulation.import_features(image_ids, db_filepath, features)
         min_match_score = 0.3
         triangulation.import_matches(image_ids,db_filepath, sfm_pairs, matches, min_match_score, True)

@@ -35,24 +35,16 @@ if __name__ == '__main__':
     parser.add_argument('--database_path', required=True)
     parser.add_argument('--n_seq_matches_per_view', default=20, type=int)
     parser.add_argument('--n_quad_matches_per_view', default=0, type=int)
-    parser.add_argument('--n_loop_closure_match_per_view', default=5, type=int)
-    parser.add_argument('--loop_matches', default=[], type=int)
+    parser.add_argument('--with_camera_loop', action="store_true", default=False)
     parser.add_argument('--n_pose_neighbours', default=0, type=int)
     args = parser.parse_args()
-
-
-    loop_matches = np.array(args.loop_matches, dtype=np.int64).reshape(-1, 2)
-
-    loop_rel_matches = np.arange(0, args.n_loop_closure_match_per_view)
-    loop_rel_matches = 2**loop_rel_matches
-    loop_rel_matches = np.concatenate([-loop_rel_matches[::-1], np.array([0]), loop_rel_matches])
 
     db = COLMAPDatabase.connect(str(args.database_path))
     images_list, image_files_organised = get_all_images(db)
     db.close()
 
     matches_str = []
-    def add_match(cam_id, matched_cam_id, current_image_file, matched_cam, matched_frame_id):
+    def add_match(current_image_file, matched_cam, matched_frame_id):
         if matched_frame_id < len(matched_cam):
             matched_image_file = matched_cam[matched_frame_id]
             if current_image_file != matched_image_file:
@@ -61,27 +53,17 @@ if __name__ == '__main__':
 
     for cam_id, current_cam in image_files_organised.items():
         for matched_cam_id, matched_cam in image_files_organised.items():
-            if math.fabs(cam_id - matched_cam_id) > 1: # only match adjacent cameras
-                continue
-            for current_image_id, current_image_file in enumerate(current_cam):
-                for frame_step in range(args.n_seq_matches_per_view):
-                    matched_frame_id = current_image_id + frame_step
-                    add_match(cam_id, matched_cam_id, current_image_file, matched_cam, matched_frame_id)
+            id_diff = math.fabs(cam_id - matched_cam_id)
+            if id_diff == 0 or id_diff == 1 or (args.with_camera_loop and id_diff == len(image_files_organised) - 1):
+                for current_image_id, current_image_file in enumerate(current_cam):
+                    for frame_step in range(args.n_seq_matches_per_view):
+                        matched_frame_id = current_image_id + frame_step
+                        add_match(current_image_file, matched_cam, matched_frame_id)
 
-                for match_id in range(args.n_quad_matches_per_view):
-                    frame_step = args.n_seq_matches_per_view + int(2**match_id) - 1
-                    matched_frame_id = current_image_id + frame_step
-                    add_match(cam_id, matched_cam_id, current_image_file, matched_cam, matched_frame_id)
-
-            ## Loop closure
-            for loop_match in loop_matches:
-                for current_loop_rel_match in loop_rel_matches:
-                    current_image_id = (loop_match[0] + current_loop_rel_match) 
-                    if current_image_id < len(current_cam):
-                        current_image_file = current_cam[current_image_id]
-                        for matched_loop_rel_match in loop_rel_matches:
-                            matched_frame_id = (loop_match[1] + matched_loop_rel_match)
-                            add_match(cam_id, matched_cam_id, current_image_file, matched_cam, matched_frame_id)
+                    for match_id in range(args.n_quad_matches_per_view):
+                        frame_step = args.n_seq_matches_per_view + int(2**match_id) - 1
+                        matched_frame_id = current_image_id + frame_step
+                        add_match(current_image_file, matched_cam, matched_frame_id)
 
 
     ## Add Pose matches
