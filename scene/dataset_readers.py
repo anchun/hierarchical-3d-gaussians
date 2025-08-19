@@ -117,6 +117,8 @@ def readColmapCameras(cam_extrinsics, cam_intrinsics, depths_params, images_fold
         image_path = os.path.join(images_folder, extr.name)
         image_name = extr.name
         if not os.path.exists(image_path):
+            image_path = os.path.join(os.path.dirname(images_folder), "../../rectified/images" , extr.name)
+        if not os.path.exists(image_path):
             image_path = os.path.join(images_folder, f"{extr.name[:-n_remove]}.jpg")
             image_name = f"{extr.name[:-n_remove]}.jpg"
         if not os.path.exists(image_path):
@@ -183,7 +185,7 @@ def storePly(path, xyz, rgb):
     ply_data = PlyData([vertex_element])
     ply_data.write(path)
 
-def readColmapSceneInfo(path, images, masks, depths, eval, train_test_exp, llffhold=None, use_npy_depth=False):
+def readColmapSceneInfo(path, images, masks, depths, eval, train_test_exp, llffhold=None, use_npy_depth=False, eval_camera_name=""):
     try:
         cameras_extrinsic_file = os.path.join(path, "sparse/0", "images.bin")
         cameras_intrinsic_file = os.path.join(path, "sparse/0", "cameras.bin")
@@ -236,6 +238,7 @@ def readColmapSceneInfo(path, images, masks, depths, eval, train_test_exp, llffh
             storePly(ply_path, xyz, rgb)
         pcd = fetchPly(ply_path)
 
+    test_cam_names_list = []
     if eval:
         if "360" in path:
             llffhold = 8
@@ -244,11 +247,11 @@ def readColmapSceneInfo(path, images, masks, depths, eval, train_test_exp, llffh
             cam_names = [cam_extrinsics[cam_id].name for cam_id in cam_extrinsics]
             cam_names = sorted(cam_names)
             test_cam_names_list = [name for idx, name in enumerate(cam_names) if idx % llffhold == 0]
-        else:
+        elif os.path.exists(os.path.join(path, "sparse/0", "test.txt")):
             with open(os.path.join(path, "sparse/0", "test.txt"), 'r') as file:
                 test_cam_names_list = [line.strip() for line in file]
-    else:
-        test_cam_names_list = []
+        elif eval_camera_name != "":
+            test_cam_names_list = [cam_extrinsics[cam_id].name for cam_id in cam_extrinsics if cam_extrinsics[cam_id].name.startswith(eval_camera_name)]
 
     reading_dir = "images" if images == None else images
     masks_reading_dir = masks if masks == "" else os.path.join(path, masks)

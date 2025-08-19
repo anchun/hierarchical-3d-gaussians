@@ -125,9 +125,9 @@ if __name__ == "__main__":
     lp = ModelParams(parser)
     op = OptimizationParams(parser)
     pp = PipelineParams(parser)
-    parser.add_argument('--out_dir', type=str, default="")
-    parser.add_argument("--taus", nargs="+", type=float, default=[0.0, 3.0, 6.0, 15.0])
     args = parser.parse_args(sys.argv[1:])
+    args.hierarchy = os.path.join(args.model_path, f"hierarchy.hier")
+    args.eval_camera_name = args.eval_camera_name if args.eval_camera_name != "" else "front-forward"
     
     print("Rendering " + args.model_path)
 
@@ -136,6 +136,5 @@ if __name__ == "__main__":
     gaussians.active_sh_degree = dataset.sh_degree
     scene = Scene(dataset, gaussians, resolution_scales = [1], create_from_hier=True)
 
-    for tau in args.taus:
-        render_set(args, scene, pipe, os.path.join(args.out_dir, f"render_{tau}"), tau, args.eval)
+    render_set(args, scene, pipe, os.path.join(args.model_path, f"rendered"), 0.0, args.eval)
 

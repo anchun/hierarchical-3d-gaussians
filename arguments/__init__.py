@@ -58,6 +58,7 @@ class ModelParams(ParamGroup):
         self.train_test_exp = False # Include the left half of the test images in the train set to optimize exposures
         self.data_device = "cuda"
         self.eval = False
+        self.eval_camera_name = ""
         self.skip_scale_big_gauss = True
         self.hierarchy = ""
         self.pretrained = ""
