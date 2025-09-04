@@ -151,7 +151,8 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
                         gaussians.add_densification_stats(viewspace_point_tensor, visibility_filter, image.shape[2], image.shape[1], dataset.use_gsplat)
 
                         if iteration > opt.densify_from_iter and iteration % opt.densification_interval == 0:
-                            gaussians.densify_and_prune(opt.densify_grad_threshold, 0.005, scene.cameras_extent)
+                            size_threshold = 20 if iteration > opt.opacity_reset_interval else None
+                            gaussians.densify_and_prune(opt.densify_grad_threshold, opt.densify_absgrad_threshold, 0.005, scene.cameras_extent, size_threshold)
                         
                         if iteration % opt.opacity_reset_interval == 0:
                             #print("-----------------RESET OPACITY!-------------")
@@ -225,8 +226,6 @@ if __name__ == "__main__":
     parser.add_argument("--start_checkpoint", type=str, default = None)
     args = parser.parse_args(sys.argv[1:])
     args.save_iterations.append(args.iterations)
-    # default densify for half iterations.
-    args.densify_until_iter = args.iterations / 2
     print("Iterations: ", args.iterations, "Densify iterations: ", args.densify_until_iter)
     
     print("Optimizing " + args.model_path)

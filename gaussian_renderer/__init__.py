@@ -191,7 +191,8 @@ def render_gsplat(
         height=int(viewpoint_camera.image_height),
         packed=False,
         sh_degree=sh_degree,
-        render_mode = "RGB+D"
+        render_mode = "RGB+D", # with depth
+        absgrad=True, # with abs gradients
     )
     rendered_color = render_colors[..., :-1]
     rendered_inv_depth = 1.0 / render_colors[..., -1:].clamp(min=1e-10) * render_alphas
