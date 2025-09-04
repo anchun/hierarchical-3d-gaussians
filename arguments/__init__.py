@@ -67,6 +67,7 @@ class ModelParams(ParamGroup):
         self.bounds_file = ""
         self.skybox_locked = False
         self.use_npy_depth = False
+        self.use_gsplat = True
         super().__init__(parser, "Loading Parameters", sentinel)
 
     def extract(self, args):

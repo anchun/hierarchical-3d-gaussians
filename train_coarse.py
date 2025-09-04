@@ -66,21 +66,6 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
                 viewpoint_cam.full_proj_transform = viewpoint_cam.full_proj_transform.cuda()
                 viewpoint_cam.camera_center = viewpoint_cam.camera_center.cuda()
 
-                if network_gui.conn == None:
-                    network_gui.try_connect()
-                while network_gui.conn != None:
-                    try:
-                        net_image_bytes = None
-                        custom_cam, do_training, pipe.convert_SHs_python, pipe.compute_cov3D_python, keep_alive, scaling_modifer = network_gui.receive()
-                        if custom_cam != None:
-                            net_image = render_coarse(custom_cam, gaussians, pipe, background, scaling_modifer, indices = indices)["render"]
-                            net_image_bytes = memoryview((torch.clamp(net_image, min=0, max=1.0) * 255).byte().permute(1, 2, 0).contiguous().cpu().numpy())
-                        network_gui.send(net_image_bytes, dataset.source_path)
-                        if do_training and ((iteration < int(opt.iterations)) or not keep_alive):
-                            break
-                    except Exception as e:
-                        network_gui.conn = None
-
                 iter_start.record()
 
                 # Every 1000 its we increase the levels of SH up to a maximum degree
@@ -185,7 +170,7 @@ if __name__ == "__main__":
     safe_state(args.quiet)
 
     # Start GUI server, configure and run training
-    network_gui.init(args.ip, args.port)
+    #network_gui.init(args.ip, args.port)
     torch.autograd.set_detect_anomaly(args.detect_anomaly)
     training(lp.extract(args), op.extract(args), pp.extract(args), args.save_iterations, args.checkpoint_iterations, args.start_checkpoint, args.debug_from)
 

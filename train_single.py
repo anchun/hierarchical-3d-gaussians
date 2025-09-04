@@ -13,7 +13,7 @@ import os
 import torch
 from utils.loss_utils import l1_loss, ssim
 from utils.image_utils import psnr
-from gaussian_renderer import render, network_gui
+from gaussian_renderer import render, render_gsplat, network_gui
 import sys
 from scene import Scene, GaussianModel
 from utils.general_utils import safe_state, get_expon_lr_func
@@ -57,8 +57,8 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
     
     training_generator = DataLoader(scene.getTrainCameras(), num_workers = 8, prefetch_factor = 1, persistent_workers = True, collate_fn=direct_collate)
 
+    torch.cuda.set_per_process_memory_fraction(0.9, device=None)
     iteration = first_iter
-
     while iteration < opt.iterations + 1:
         for viewpoint_batch in training_generator:
             for viewpoint_cam in viewpoint_batch:
@@ -68,25 +68,6 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
                 viewpoint_cam.projection_matrix = viewpoint_cam.projection_matrix.cuda()
                 viewpoint_cam.full_proj_transform = viewpoint_cam.full_proj_transform.cuda()
                 viewpoint_cam.camera_center = viewpoint_cam.camera_center.cuda()
-
-                if not args.disable_viewer:
-                    if network_gui.conn == None:
-                        network_gui.try_connect()
-                    while network_gui.conn != None:
-                        try:
-                            net_image_bytes = None
-                            custom_cam, do_training, pipe.convert_SHs_python, pipe.compute_cov3D_python, keep_alive, scaling_modifer = network_gui.receive()
-                            if custom_cam != None:
-                                if keep_alive:
-                                    net_image = render(custom_cam, gaussians, pipe, background, scaling_modifer, indices = indices)["render"]
-                                else:
-                                    net_image = render(custom_cam, gaussians, pipe, background, scaling_modifer, indices = indices)["depth"].repeat(3, 1, 1)
-                                net_image_bytes = memoryview((torch.clamp(net_image, min=0, max=1.0) * 255).byte().permute(1, 2, 0).contiguous().cpu().numpy())
-                            network_gui.send(net_image_bytes, dataset.source_path)
-                            if do_training and ((iteration < int(opt.iterations)) or not keep_alive):
-                                break
-                        except Exception as e:
-                            network_gui.conn = None
 
                 iter_start.record()
 
@@ -99,7 +80,10 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
                 # Render
                 if (iteration - 1) == debug_from:
                     pipe.debug = True
-                render_pkg = render(viewpoint_cam, gaussians, pipe, background, indices = indices, use_trained_exp=True)
+                if dataset.use_gsplat:
+                    render_pkg = render_gsplat(viewpoint_cam, gaussians, pipe, background, indices = indices, use_trained_exp=True)
+                else:
+                    render_pkg = render(viewpoint_cam, gaussians, pipe, background, indices = indices, use_trained_exp=True)
                 image, invDepth, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["depth"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
 
                 # Loss
@@ -164,7 +148,7 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
                     if iteration < opt.densify_until_iter:
                         # Keep track of max radii in image-space for pruning
                         gaussians.max_radii2D[visibility_filter] = torch.max(gaussians.max_radii2D[visibility_filter], radii)
-                        gaussians.add_densification_stats(viewspace_point_tensor, visibility_filter)
+                        gaussians.add_densification_stats(viewspace_point_tensor, visibility_filter, image.shape[2], image.shape[1], dataset.use_gsplat)
 
                         if iteration > opt.densify_from_iter and iteration % opt.densification_interval == 0:
                             gaussians.densify_and_prune(opt.densify_grad_threshold, 0.005, scene.cameras_extent)
@@ -255,8 +239,8 @@ if __name__ == "__main__":
     safe_state(args.quiet)
 
     # Start GUI server, configure and run training
-    if not args.disable_viewer:
-        network_gui.init(args.ip, args.port)
+    #if not args.disable_viewer:
+        #network_gui.init(args.ip, args.port)
     torch.autograd.set_detect_anomaly(args.detect_anomaly)
     training(lp.extract(args), op.extract(args), pp.extract(args), args.save_iterations, args.checkpoint_iterations, args.start_checkpoint, args.debug_from)
 

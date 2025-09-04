@@ -9,6 +9,7 @@ gradio_imageslider
 gradio==4.29.0
 matplotlib
 hloc>=1.5
+gsplat>=1.5.3
 submodules/hierarchy-rasterizer
 submodules/simple-knn
 submodules/gaussianhierarchy

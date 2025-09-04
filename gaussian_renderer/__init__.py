@@ -10,6 +10,8 @@
 #
 
 import torch
+from torch.nn import functional as F
+from gsplat import rasterization
 import math
 from diff_gaussian_rasterization import GaussianRasterizationSettings, GaussianRasterizer
 from scene.gaussian_model import GaussianModel
@@ -134,6 +136,87 @@ def render(
             "viewspace_points": screenspace_points,
             "visibility_filter" : vis_filter.nonzero().flatten().long(),
             "radii": radii[subfilter]}
+
+def render_gsplat(
+        viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, scaling_modifier = 1.0, override_color = None, indices = None, use_trained_exp=False, big_limit = 30.0):
+    """
+    Render the scene. 
+    
+    Background tensor (bg_color) must be on GPU!
+    """
+ 
+    # Create zero tensor. We will use it to make pytorch return gradients of the 2D (screen-space) means
+    screenspace_points = torch.zeros_like(pc.get_xyz, dtype=pc.get_xyz.dtype, requires_grad=True, device="cuda") + 0
+    try:
+        screenspace_points.retain_grad()
+    except:
+        pass
+
+    # Set up rasterization configuration
+    tanfovx = math.tan(viewpoint_camera.FoVx * 0.5)
+    tanfovy = math.tan(viewpoint_camera.FoVy * 0.5)
+    focal_length_x = viewpoint_camera.image_width / (2 * tanfovx)
+    focal_length_y = viewpoint_camera.image_height / (2 * tanfovy)
+    K = torch.tensor(
+        [
+            [focal_length_x, 0, viewpoint_camera.image_width / 2.0],
+            [0, focal_length_y, viewpoint_camera.image_height / 2.0],
+            [0, 0, 1],
+        ],
+        device="cuda",
+    )
+
+    means3D = pc.get_xyz
+    opacity = pc.get_opacity
+    scales = pc.get_scaling * scaling_modifier
+    rotations = pc.get_rotation
+    if override_color is not None:
+        colors = override_color # [N, 3]
+        sh_degree = None
+    else:
+        colors = pc.get_features # [N, K, 3]
+        sh_degree = pc.active_sh_degree
+
+    viewmat = viewpoint_camera.world_view_transform.transpose(0, 1) # [4, 4]
+    render_colors, render_alphas, info = rasterization(
+        means=means3D,  # [N, 3]
+        quats=rotations,  # [N, 4]
+        scales=scales,  # [N, 3]
+        opacities=opacity.squeeze(-1),  # [N,]
+        colors=colors,
+        viewmats=viewmat[None],  # [1, 4, 4]
+        Ks=K[None],  # [1, 3, 3]
+        backgrounds=bg_color[None],
+        width=int(viewpoint_camera.image_width),
+        height=int(viewpoint_camera.image_height),
+        packed=False,
+        sh_degree=sh_degree,
+        render_mode = "RGB+D"
+    )
+    rendered_color = render_colors[..., :-1]
+    rendered_inv_depth = 1.0 / render_colors[..., -1:].clamp(min=1e-10) * render_alphas
+    rendered_image = rendered_color[0].permute(2, 0, 1)
+    radii = info["radii"].squeeze(0) # [N,]
+    try:
+        info["means2d"].retain_grad() # [1, N, 2]
+    except:
+        pass
+    
+    if use_trained_exp:
+        exposure = pc.get_exposure_from_name(viewpoint_camera.image_name)
+        rendered_image = torch.matmul(rendered_image.permute(1, 2, 0), exposure[:3, :3]).permute(2, 0, 1) + exposure[:3, 3,   None, None]
+    rendered_image = rendered_image.clamp(0, 1)
+
+    vis_filter = (radii > 0).all(dim=-1) 
+    radii_out = radii.max(dim=1).values
+
+    # Those Gaussians that were frustum culled or had a radius of 0 were not visible.
+    # They will be excluded from value updates used in the splitting criteria.
+    return {"render": rendered_image,
+            "depth" : rendered_inv_depth[..., 0],
+            "viewspace_points": info["means2d"],
+            "visibility_filter" : vis_filter.nonzero().flatten().long(),
+            "radii": radii_out[vis_filter]}
 
 
 def render_post(

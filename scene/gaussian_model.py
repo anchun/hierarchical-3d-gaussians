@@ -688,6 +688,13 @@ class GaussianModel:
 
         torch.cuda.empty_cache()
 
-    def add_densification_stats(self, viewspace_point_tensor, update_filter):
-        self.xyz_gradient_accum[update_filter] = torch.max(torch.norm(viewspace_point_tensor.grad[update_filter,:2], dim=-1, keepdim=True), self.xyz_gradient_accum[update_filter])
+    def add_densification_stats(self, viewspace_point_tensor, update_filter, width = None, height = None, use_gsplat=False):
+        if use_gsplat:
+            grad = viewspace_point_tensor.grad.squeeze(0) # [N, 2]
+            # Normalize the gradient to [-1, 1] screen size
+            grad[:, 0] *= width * 0.5
+            grad[:, 1] *= height * 0.5
+            self.xyz_gradient_accum[update_filter] = torch.max(torch.norm(grad[update_filter,:2], dim=-1, keepdim=True), self.xyz_gradient_accum[update_filter])
+        else:
+            self.xyz_gradient_accum[update_filter] = torch.max(torch.norm(viewspace_point_tensor.grad[update_filter,:2], dim=-1, keepdim=True), self.xyz_gradient_accum[update_filter])
         self.denom[update_filter] += 1
