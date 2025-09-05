@@ -55,7 +55,7 @@ if __name__ == '__main__':
     parser.add_argument("--course_iterations", type=int, default=30_000)
     parser.add_argument("--chunks_iterations", type=int, default=30_000)
     parser.add_argument("--chunks_post_iterations", type=int, default=0)
-    parser.add_argument("--sh_degree", type=int, default=3)
+    parser.add_argument("--sh_degree", type=int, default=1)
     parser.add_argument('--writing_ply', action="store_true", default=True)
     parser.add_argument('--skip_merge', action="store_true", default=False)
     parser.add_argument('--use_npy_depth', action="store_true", default=False)

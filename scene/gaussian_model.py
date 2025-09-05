@@ -633,7 +633,8 @@ class GaussianModel:
         # Extract points that satisfy the gradient condition
         padded_grad = torch.zeros((n_init_points), device="cuda")
         padded_grad[:grads.shape[0]] = grads.squeeze()
-        selected_pts_mask = torch.where(padded_grad >= grad_threshold, True, False)
+        selected_pts_mask = torch.where(padded_grad * self.max_radii2D * torch.pow(self.get_opacity.flatten(), 1/5.0) >= grad_threshold, True, False)
+        selected_pts_mask = torch.logical_and(selected_pts_mask, self.get_opacity.flatten() > 0.15)
         selected_pts_mask = torch.logical_and(selected_pts_mask,
                                               torch.max(self.get_scaling, dim=1).values > self.percent_dense*scene_extent)
         # No densification of the scaffold
@@ -676,21 +677,22 @@ class GaussianModel:
 
         self.densification_postfix(new_xyz, new_features_dc, new_features_rest, new_opacities, new_scaling, new_rotation)
 
-    def densify_and_prune(self, max_grad, max_absgrad, min_opacity, extent, max_screen_size):
+    def densify_and_prune(self, max_grad, max_absgrad, max_gaussian_num, min_opacity, extent, prune_big_points=False, use_absgrad=False):
         grads = self.xyz_gradient_accum 
         grads[grads.isnan()] = 0.0
         
         grads_abs = self.xyz_gradient_accum_abs
         grads_abs[grads_abs.isnan()] = 0.0
 
-        self.densify_and_clone(grads, max_grad, extent)
-        self.densify_and_split(grads_abs, max_absgrad, extent)
+        if self.get_xyz.shape[0] < max_gaussian_num:
+            self.densify_and_clone(grads, max_grad, extent)
+        if self.get_xyz.shape[0] < max_gaussian_num:
+            self.densify_and_split(grads_abs if use_absgrad else grads, max_absgrad if use_absgrad else max_grad, extent)
 
         prune_mask = (self.get_opacity < min_opacity).squeeze()
-        if max_screen_size:
-            big_points_vs = self.max_radii2D > max_screen_size
-            #big_points_ws = self.get_scaling.max(dim=1).values > 0.1 * extent
-            prune_mask = torch.logical_or(prune_mask, big_points_vs)
+        if prune_big_points:
+            big_points_ws = self.get_scaling.max(dim=1).values > 0.1 * extent
+            prune_mask = torch.logical_or(prune_mask, big_points_ws)
         if self.scaffold_points is not None:
             prune_mask[:self.scaffold_points] = False
 
@@ -700,17 +702,18 @@ class GaussianModel:
 
         torch.cuda.empty_cache()
 
-    def add_densification_stats(self, viewspace_point_tensor, update_filter, width = None, height = None, use_gsplat=False):
+    def add_densification_stats(self, viewspace_point_tensor, update_filter, width = None, height = None, use_gsplat=False, use_absgrad=False):
         if use_gsplat:
             grad = viewspace_point_tensor.grad.squeeze(0) # [N, 2]
             # Normalize the gradient to [-1, 1] screen size
             grad[:, 0] *= width * 0.5
             grad[:, 1] *= height * 0.5
             self.xyz_gradient_accum[update_filter] = torch.max(torch.norm(grad[update_filter,:2], dim=-1, keepdim=True), self.xyz_gradient_accum[update_filter])
-            absgrad = viewspace_point_tensor.absgrad.squeeze(0)
-            absgrad[:, 0] *= width * 0.5
-            absgrad[:, 1] *= height * 0.5
-            self.xyz_gradient_accum_abs[update_filter] = torch.max(torch.norm(absgrad[update_filter,:2], dim=-1, keepdim=True), self.xyz_gradient_accum_abs[update_filter])
+            if use_absgrad:
+                absgrad = viewspace_point_tensor.absgrad.squeeze(0)
+                absgrad[:, 0] *= width * 0.5
+                absgrad[:, 1] *= height * 0.5
+                self.xyz_gradient_accum_abs[update_filter] = torch.max(torch.norm(absgrad[update_filter,:2], dim=-1, keepdim=True), self.xyz_gradient_accum_abs[update_filter])
         else:
             self.xyz_gradient_accum[update_filter] = torch.max(torch.norm(viewspace_point_tensor.grad[update_filter,:2], dim=-1, keepdim=True), self.xyz_gradient_accum[update_filter])
         self.denom[update_filter] += 1

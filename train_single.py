@@ -81,7 +81,7 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
                 if (iteration - 1) == debug_from:
                     pipe.debug = True
                 if dataset.use_gsplat:
-                    render_pkg = render_gsplat(viewpoint_cam, gaussians, pipe, background, indices = indices, use_trained_exp=True)
+                    render_pkg = render_gsplat(viewpoint_cam, gaussians, pipe, background, indices = indices, use_trained_exp=True, absgrad=dataset.use_absgrad)
                 else:
                     render_pkg = render(viewpoint_cam, gaussians, pipe, background, indices = indices, use_trained_exp=True)
                 image, invDepth, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["depth"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
@@ -148,11 +148,11 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
                     if iteration < opt.densify_until_iter:
                         # Keep track of max radii in image-space for pruning
                         gaussians.max_radii2D[visibility_filter] = torch.max(gaussians.max_radii2D[visibility_filter], radii)
-                        gaussians.add_densification_stats(viewspace_point_tensor, visibility_filter, image.shape[2], image.shape[1], dataset.use_gsplat)
+                        gaussians.add_densification_stats(viewspace_point_tensor, visibility_filter, image.shape[2], image.shape[1], dataset.use_gsplat, dataset.use_absgrad)
 
                         if iteration > opt.densify_from_iter and iteration % opt.densification_interval == 0:
-                            size_threshold = 20 if iteration > opt.opacity_reset_interval else None
-                            gaussians.densify_and_prune(opt.densify_grad_threshold, opt.densify_absgrad_threshold, 0.005, scene.cameras_extent, size_threshold)
+                            prune_big_points = iteration > opt.opacity_reset_interval
+                            gaussians.densify_and_prune(opt.densify_grad_threshold, opt.densify_absgrad_threshold, opt.max_gaussian_num, opt.min_opacity, scene.cameras_extent, prune_big_points, use_absgrad=dataset.use_absgrad)
                         
                         if iteration % opt.opacity_reset_interval == 0:
                             #print("-----------------RESET OPACITY!-------------")
@@ -226,7 +226,7 @@ if __name__ == "__main__":
     parser.add_argument("--start_checkpoint", type=str, default = None)
     args = parser.parse_args(sys.argv[1:])
     args.save_iterations.append(args.iterations)
-    print("Iterations: ", args.iterations, "Densify iterations: ", args.densify_until_iter)
+    print("Iterations: ", args.iterations, "Densify iterations: ", args.densify_until_iter, "degree SH: ", args.sh_degree)
     
     print("Optimizing " + args.model_path)
 

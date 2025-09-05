@@ -138,7 +138,7 @@ def render(
             "radii": radii[subfilter]}
 
 def render_gsplat(
-        viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, scaling_modifier = 1.0, override_color = None, indices = None, use_trained_exp=False, big_limit = 30.0):
+        viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, scaling_modifier = 1.0, override_color = None, indices = None, use_trained_exp=False, absgrad=False):
     """
     Render the scene. 
     
@@ -192,7 +192,8 @@ def render_gsplat(
         packed=False,
         sh_degree=sh_degree,
         render_mode = "RGB+D", # with depth
-        absgrad=True, # with abs gradients
+        absgrad=absgrad, # abs gradients
+        rasterize_mode = "classic", # ["classic", "antialiased"]
     )
     rendered_color = render_colors[..., :-1]
     rendered_inv_depth = 1.0 / render_colors[..., -1:].clamp(min=1e-10) * render_alphas

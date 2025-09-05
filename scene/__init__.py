@@ -100,10 +100,9 @@ class Scene:
         else:
             with open(os.path.join(point_cloud_path, "pc_info.txt"), "w") as f:
                 f.write(str(self.gaussians.skybox_points))
-            if self.gaussians._xyz.size(0) > 18_000_000:
-                self.gaussians.save_pt(point_cloud_path)
-            else:
-                self.gaussians.save_ply(os.path.join(point_cloud_path, "point_cloud.ply"))
+            #if self.gaussians._xyz.size(0) > 30_000_000:
+            #    self.gaussians.save_pt(point_cloud_path)
+            self.gaussians.save_ply(os.path.join(point_cloud_path, "point_cloud.ply"))
 
             exposure_dict = {
                 image_name: self.gaussians.get_exposure_from_name(image_name).detach().cpu().numpy().tolist()
