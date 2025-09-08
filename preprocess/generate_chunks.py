@@ -47,7 +47,7 @@ if __name__ == '__main__':
     parser.add_argument('--images_dir', default="")
     parser.add_argument('--global_colmap_dir', default="")
     parser.add_argument('--chunks_dir', default="")
-    parser.add_argument('--chunk_size', default=100, type=float)
+    parser.add_argument('--chunk_size', default=150, type=float)
     parser.add_argument('--skip_bundle_adjustment', action="store_true", default=False)
     parser.add_argument('--keep_raw_chunks', action="store_true", default=False)
     parser.add_argument('--with_mvs', action="store_true", default=False)

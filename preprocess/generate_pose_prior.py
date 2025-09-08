@@ -264,7 +264,7 @@ if __name__ == '__main__':
         colmap_exe, "model_aligner",
         "--database_path", db_filepath,
         "--input_path", f"{args.project_dir}/camera_calibration/rectified/sparse", 
-        "--output_path", f"{args.project_dir}/camera_calibration/aligned/sparse/0",
+        "--output_path", f"{args.project_dir}/camera_calibration/aligned/sparse/model_aligner",
         "--ref_is_gps", "0",
         "--alignment_type", "enu",
         "--alignment_max_error", "3.0",
@@ -273,6 +273,18 @@ if __name__ == '__main__':
         subprocess.run(colmap_model_aligner_args, check=True)
     except subprocess.CalledProcessError as e:
         print(f"Error executing model_aligner: {e}")
+        sys.exit(1)
+    
+    # reorient to enu coordinates
+    reorient_to_enu_args = [
+        "python", f"preprocess/reorient_enu.py",
+        "--input_path", f"{args.project_dir}/camera_calibration/aligned/sparse/model_aligner",
+        "--output_path", f"{args.project_dir}/camera_calibration/aligned/sparse/0",
+    ]
+    try:
+        subprocess.run(reorient_to_enu_args, check=True)
+    except subprocess.CalledProcessError as e:
+        print(f"Error executing reorient_to_enu_args: {e}")
         sys.exit(1)
 
     end_time = time.time()
