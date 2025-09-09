@@ -54,6 +54,7 @@ if __name__ == '__main__':
     parser.add_argument('--chunks_dir', default="")
     parser.add_argument("--course_iterations", type=int, default=30_000)
     parser.add_argument("--chunks_iterations", type=int, default=30_000)
+    parser.add_argument("--max_gaussian_num", type=int, default=20_000_000)
     parser.add_argument("--chunks_post_iterations", type=int, default=0)
     parser.add_argument("--sh_degree", type=int, default=1)
     parser.add_argument('--writing_ply', action="store_true", default=True)
@@ -139,6 +140,7 @@ if __name__ == '__main__':
         "--save_iterations -1",
         "--sh_degree", str(args.sh_degree),
         f"--iterations {args.chunks_iterations}",
+        f"--max_gaussian_num {args.max_gaussian_num}",
         f"-i {images_dir}", 
         f"-d {depths_dir}",
         f"--scaffold_file {output_dir}/scaffold/point_cloud/iteration_{args.course_iterations}",
