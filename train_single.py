@@ -95,7 +95,7 @@ def training(dataset, opt, pipe, args):
     progress_bar = tqdm(range(first_iter, opt.iterations), desc="Training progress")
     iteration = first_iter
     while iteration < opt.iterations + 1:
-        for viewpoint_batch in mix_dataloader_sampler(training_generator, fix_generator, lambda it: 1.0 if it < opt.fix_from_iter else 0.7, opt.iterations):
+        for viewpoint_batch in mix_dataloader_sampler(training_generator, fix_generator, lambda it: 1.0 if (it < opt.fix_from_iter or not args.generate_novel_views) else 0.7, opt.iterations):
             for viewpoint_cam in viewpoint_batch:
 
                 viewpoint_cam.world_view_transform = viewpoint_cam.world_view_transform.cuda()
