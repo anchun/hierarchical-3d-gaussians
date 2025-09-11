@@ -18,12 +18,15 @@ from scene.gaussian_model import GaussianModel
 from arguments import ModelParams
 from utils.camera_utils import camera_to_JSON, CameraDataset
 from utils.system_utils import mkdir_p
+import numpy as np
+from scipy.spatial.transform import Rotation
 
 class Scene:
 
     gaussians : GaussianModel
 
-    def __init__(self, args : ModelParams, gaussians : GaussianModel, load_iteration=None, shuffle=True, resolution_scales=[1.0], create_from_hier=False):
+    def __init__(self, args : ModelParams, gaussians : GaussianModel, load_iteration=None, shuffle=True, create_from_hier=False,
+                        generate_novel_views = False, novel_pos_z = [], novel_rot_z = []):
         """b
         :param path: Path to colmap scene main folder.
         """
@@ -37,9 +40,6 @@ class Scene:
             else:
                 self.loaded_iter = load_iteration
             print("Loading trained model at iteration {}".format(self.loaded_iter))
-
-        self.train_cameras = {}
-        self.test_cameras = {}
 
         if os.path.exists(os.path.join(args.source_path, "sparse")):
             scene_info = sceneLoadTypeCallbacks["Colmap"](args.source_path, args.images, args.alpha_masks, args.depths, args.eval, args.train_test_exp, None, args.use_npy_depth, args.eval_camera_name)
@@ -59,19 +59,24 @@ class Scene:
                 json_cams.append(camera_to_JSON(id, cam))
             with open(os.path.join(self.model_path, "cameras.json"), 'w') as file:
                 json.dump(json_cams, file)
-
+        novel_cam_infos = []
+        if generate_novel_views:
+            novel_cam_infos = self.generate_novel_camera_infos(scene_info.train_cameras, novel_pos_z, novel_rot_z)
         if shuffle:
             random.shuffle(scene_info.train_cameras)  # Multi-res consistent random shuffling
             random.shuffle(scene_info.test_cameras)  # Multi-res consistent random shuffling
+            random.shuffle(novel_cam_infos)
 
         self.cameras_extent = scene_info.nerf_normalization["radius"]
 
-        for resolution_scale in resolution_scales:
-            print("Making Training Dataset")
-            self.train_cameras[resolution_scale] = CameraDataset(scene_info.train_cameras, args, resolution_scale, False)
+        print("Making Training Dataset")
+        self.train_cameras = CameraDataset(scene_info.train_cameras, args, 1, False)
 
-            print("Making Test Dataset")
-            self.test_cameras[resolution_scale] = CameraDataset(scene_info.test_cameras, args, resolution_scale, True)
+        print("Making Test Dataset")
+        self.test_cameras = CameraDataset(scene_info.test_cameras, args, 1, True)
+        
+        print("Making Novel Dataset")
+        self.novel_view_cameras = CameraDataset(novel_cam_infos, args, 1, False, is_novel_view=True)
 
         if self.loaded_iter:
             self.gaussians.load_ply(os.path.join(self.model_path,
@@ -112,9 +117,51 @@ class Scene:
             with open(os.path.join(self.model_path, "exposure.json"), "w") as f:
                 json.dump(exposure_dict, f, indent=2)
 
-    def getTrainCameras(self, scale=1.0):
-        return self.train_cameras[scale]
-
-    def getTestCameras(self, scale=1.0):
-        return self.test_cameras[scale]
+    def getTrainCameras(self):
+        return self.train_cameras
     
+    def getNovelViewCameras(self):
+        return self.novel_view_cameras
+
+    def getTestCameras(self):
+        return self.test_cameras
+    
+    def generate_novel_camera_infos(self, cam_infos, novel_pos_z, novel_rot_z):
+        print(f"Generating novel views with pos_z: {novel_pos_z}, rot_z: {novel_rot_z}")
+        camera_ids = list(set(cam.uid for cam in cam_infos))
+        assert(len(camera_ids)== len(novel_pos_z) and len(camera_ids) == len(novel_rot_z))
+        rotations_delta = [Rotation.from_euler('z', rot_z, degrees=True).as_matrix() for rot_z in novel_rot_z]
+        positions_delta = [np.array([0, 0, pos_z]) for pos_z in novel_pos_z]
+        mid_index = (len(camera_ids) - 1) // 2
+        opencv2camera = np.array([[0, 0, 1, 0], [-1, 0, 0, 0], [0, -1, 0, 0], [0, 0, 0, 1]])
+        cam_infos_sorted = sorted(cam_infos, key = lambda x : os.path.basename(x.image_name) + str(x.uid))
+        cam_infos_novel = []
+        for i in range(0, len(cam_infos_sorted), len(camera_ids)):
+            camera_info_mid = cam_infos_sorted[i + mid_index]
+            w2c = np.eye(4)
+            w2c[:3, :3] = camera_info_mid.R.transpose()
+            w2c[:3, 3] = camera_info_mid.T
+            c2w = np.linalg.inv(opencv2camera @ w2c)
+            for camera_id in camera_ids:
+                index = i + camera_id
+                camera_info_current = cam_infos_sorted[index]
+                current_w2c = np.eye(4)
+                current_w2c[:3, :3] = camera_info_current.R.transpose()
+                current_w2c[:3, 3] = camera_info_current.T
+                current_c2w = np.linalg.inv(opencv2camera @ current_w2c)
+                current_c2w[:3, :3] = rotations_delta[camera_id] @ c2w[:3, :3] # override rotation
+                current_c2w[:3, 3] += positions_delta[camera_id] # add translation_z
+                #print(f"[{camera_id},{camera_info_current.image_name}]position: {current_c2w[:3, 3]}, rotation: {Rotation.from_matrix(current_c2w[:3, :3]).as_euler('zyx', degrees=True)}")
+                current_w2c = np.linalg.inv(current_c2w @ opencv2camera)
+                camera_info_novel = camera_info_current._replace(
+                                        R = current_w2c[:3, :3].transpose(), 
+                                        T = current_w2c[:3, 3], 
+                                        image_path = None, 
+                                        mask_path = None,
+                                        depth_path = None,
+                                        depth_npy_path = None,
+                                        depth_params = dict(),
+                                        ref_image_path = camera_info_current.image_path)
+                cam_infos_novel.append(camera_info_novel)
+        return cam_infos_novel
+

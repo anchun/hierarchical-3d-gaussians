@@ -38,6 +38,7 @@ class CameraInfo(NamedTuple):
     mask_path: str
     depth_path: str
     depth_npy_path: str
+    ref_image_path: str
     image_name: str
     width: int
     height: int
@@ -135,7 +136,7 @@ def readColmapCameras(cam_extrinsics, cam_intrinsics, depths_params, images_fold
 
         cam_info = CameraInfo(uid=uid, R=R, T=T, FovY=FovY, FovX=FovX, primx=primx, primy=primy, depth_params=depth_params,
                               image_path=image_path, mask_path=mask_path, depth_path=depth_path, depth_npy_path=depth_npy_path, image_name=image_name, 
-                              width=width, height=height, is_test=image_name in test_cam_names_list)
+                              ref_image_path=None, width=width, height=height, is_test=image_name in test_cam_names_list)
         cam_infos.append(cam_info)
     sys.stdout.write('\n')
     return cam_infos

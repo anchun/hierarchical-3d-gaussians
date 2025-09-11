@@ -106,6 +106,7 @@ class OptimizationParams(ParamGroup):
         self.densify_until_iter = 15_000
         self.densify_grad_threshold = 0.01
         self.densify_absgrad_threshold = 0.01
+        self.fix_from_iter = 6000
         self.max_gaussian_num = 30_000_000
         self.min_opacity = 0.005
         self.depth_l1_weight_init = 1.0

@@ -11,14 +11,18 @@
 
 import os
 import torch
+import random
 from utils.loss_utils import l1_loss, ssim
 from utils.image_utils import psnr
 from gaussian_renderer import render, render_gsplat, network_gui
 import sys
 from scene import Scene, GaussianModel
 from utils.general_utils import safe_state, get_expon_lr_func
+from difix.pipeline_difix import DifixPipeline
+from PIL import Image
 import uuid
 from tqdm import tqdm
+import numpy as np
 from torch.utils.data import DataLoader
 from argparse import ArgumentParser, Namespace
 from arguments import ModelParams, PipelineParams, OptimizationParams
@@ -26,11 +30,36 @@ from arguments import ModelParams, PipelineParams, OptimizationParams
 def direct_collate(x):
     return x
 
-def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, checkpoint, debug_from):
+
+
+def mix_dataloader_sampler(loader1, loader2, p1_schedule, total_iterations):
+    it1, it2 = iter(loader1), iter(loader2)
+    iteration = 0
+    while iteration < total_iterations:
+        p1 = p1_schedule(iteration)
+
+        if random.random() < p1:
+            try:
+                batch = next(it1)
+            except StopIteration:
+                it1 = iter(loader1)
+                batch = next(it1)
+        else:
+            try:
+                batch = next(it2)
+            except StopIteration:
+                it2 = iter(loader2)
+                batch = next(it2)
+
+        yield batch
+        iteration += 1
+
+def training(dataset, opt, pipe, args):
     first_iter = 0
+    checkpoint = args.start_checkpoint
     prepare_output_and_logger(dataset)
     gaussians = GaussianModel(dataset.sh_degree)
-    scene = Scene(dataset, gaussians)
+    scene = Scene(dataset, gaussians, generate_novel_views = args.generate_novel_views, novel_pos_z = args.novel_pos_z, novel_rot_z = args.novel_rot_z)
     gaussians.training_setup(opt)
     if checkpoint:
         (model_params, first_iter) = torch.load(checkpoint)
@@ -50,19 +79,24 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
     ema_Ll1depth_for_log = 0.0
     psnr_val_for_log = 0.0
     ssim_val_for_log = 0.0
-    progress_bar = tqdm(range(first_iter, opt.iterations), desc="Training progress")
     first_iter += 1
-
-    indices = None  
     
-    training_generator = DataLoader(scene.getTrainCameras(), num_workers = 8, prefetch_factor = 1, persistent_workers = True, collate_fn=direct_collate)
-
+    training_generator = DataLoader(scene.getTrainCameras(), num_workers = 8, batch_size = 1, prefetch_factor = 1, persistent_workers = True, collate_fn=direct_collate)
+    fix_generator = DataLoader(scene.getNovelViewCameras(), num_workers = 8, batch_size = 1, prefetch_factor = 1, persistent_workers = True, collate_fn=direct_collate)
+    # Diffusion fixer
+    if args.generate_novel_views:
+        difix = DifixPipeline.from_pretrained("nvidia/difix_ref", trust_remote_code=True)
+        difix.set_progress_bar_config(disable=True)
+        difix.to("cuda")
+    else:
+        difix = None
+    
     torch.cuda.set_per_process_memory_fraction(0.9, device=None)
+    progress_bar = tqdm(range(first_iter, opt.iterations), desc="Training progress")
     iteration = first_iter
     while iteration < opt.iterations + 1:
-        for viewpoint_batch in training_generator:
+        for viewpoint_batch in mix_dataloader_sampler(training_generator, fix_generator, lambda it: 1.0 if it < opt.fix_from_iter else 0.7, opt.iterations):
             for viewpoint_cam in viewpoint_batch:
-               # background = torch.rand((3), dtype=torch.float32, device="cuda")
 
                 viewpoint_cam.world_view_transform = viewpoint_cam.world_view_transform.cuda()
                 viewpoint_cam.projection_matrix = viewpoint_cam.projection_matrix.cuda()
@@ -78,19 +112,24 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
                     gaussians.oneupSHdegree()
 
                 # Render
-                if (iteration - 1) == debug_from:
+                if (iteration - 1) == args.debug_from:
                     pipe.debug = True
                 if dataset.use_gsplat:
-                    render_pkg = render_gsplat(viewpoint_cam, gaussians, pipe, background, indices = indices, use_trained_exp=True, absgrad=dataset.use_absgrad)
+                    render_pkg = render_gsplat(viewpoint_cam, gaussians, background, use_trained_exp=True, absgrad=dataset.use_absgrad)
                 else:
-                    render_pkg = render(viewpoint_cam, gaussians, pipe, background, indices = indices, use_trained_exp=True)
+                    render_pkg = render(viewpoint_cam, gaussians, pipe, background, indices = None, use_trained_exp=True)
                 image, invDepth, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["depth"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
 
                 # Loss
-                gt_image = viewpoint_cam.original_image.cuda()
-                if viewpoint_cam.alpha_mask is not None:
-                    alpha_mask = viewpoint_cam.alpha_mask.cuda()
-                    image *= alpha_mask
+                if not viewpoint_cam.is_novel_view:
+                    gt_image = viewpoint_cam.original_image.cuda()
+                    if viewpoint_cam.alpha_mask is not None:
+                        alpha_mask = viewpoint_cam.alpha_mask.cuda()
+                        image *= alpha_mask
+                else:
+                    print("iteration: ", iteration, " Rendering novel view")
+                    gt_image = difix(prompt="remove degradation", image=image, ref_image=viewpoint_cam.original_image.cuda(), num_inference_steps=1, timesteps=[199], guidance_scale=0.0).images[0]
+                    gt_image = gt_image.resize(image.size, Image.LANCZOS)
                 
                 Ll1 = l1_loss(image, gt_image)
                 Lssim = (1.0 - ssim(image, gt_image))
@@ -133,7 +172,7 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
                         progress_bar.update(10)
 
                     # Log and save
-                    if (iteration in saving_iterations):
+                    if (iteration in args.save_iterations):
                         print("\n[ITER {}] Saving Gaussians".format(iteration))
                         scene.save(iteration)
                         print("peak memory: ", torch.cuda.max_memory_allocated(device='cuda'))
@@ -189,7 +228,7 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
                                 violators[:gaussians.scaffold_points] = False
                             gaussians._scaling[violators] = gaussians.scaling_inverse_activation(gaussians.get_scaling[violators] * 0.8)
                         
-                    if (iteration in checkpoint_iterations):
+                    if (iteration in args.checkpoint_iterations):
                         print("\n[ITER {}] Saving Checkpoint".format(iteration))
                         torch.save((gaussians.capture(), iteration), scene.model_path + "/chkpnt" + str(iteration) + ".pth")
 
@@ -221,6 +260,9 @@ if __name__ == "__main__":
     parser.add_argument('--debug_from', type=int, default=-1)
     parser.add_argument('--detect_anomaly', action='store_true', default=False)
     parser.add_argument("--save_iterations", nargs="+", type=int, default=[30_000])
+    parser.add_argument('--generate_novel_views', action='store_true', default=False)
+    parser.add_argument("--novel_pos_z", nargs="+", type=int, default=[0, 0, 1, 0, 0])
+    parser.add_argument("--novel_rot_z", nargs="+", type=int, default=[150, 90, 0, -90, -150])
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument("--checkpoint_iterations", nargs="+", type=int, default=[])
     parser.add_argument("--start_checkpoint", type=str, default = None)
@@ -241,7 +283,7 @@ if __name__ == "__main__":
     #if not args.disable_viewer:
         #network_gui.init(args.ip, args.port)
     torch.autograd.set_detect_anomaly(args.detect_anomaly)
-    training(lp.extract(args), op.extract(args), pp.extract(args), args.save_iterations, args.checkpoint_iterations, args.start_checkpoint, args.debug_from)
+    training(lp.extract(args), op.extract(args), pp.extract(args), args)
 
     # All done
     print("\nTraining complete.")

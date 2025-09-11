@@ -33,7 +33,7 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
     prepare_output_and_logger(dataset)
     gaussians = GaussianModel(dataset.sh_degree)
     gaussians.active_sh_degree = dataset.sh_degree
-    scene = Scene(dataset, gaussians, resolution_scales = [1], create_from_hier=True)
+    scene = Scene(dataset, gaussians, create_from_hier=True)
     gaussians.training_setup(opt, our_adam=False)
     if checkpoint:
         (model_params, first_iter) = torch.load(checkpoint)

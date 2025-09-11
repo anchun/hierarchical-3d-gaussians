@@ -25,7 +25,7 @@ class Camera(nn.Module):
                  invdepthmap, invdepthmap_npy,
                  image_name, uid,
                  trans=np.array([0.0, 0.0, 0.0]), scale=1.0, data_device = "cuda",
-                 train_test_exp=False, is_test_dataset=False, is_test_view=False,
+                 train_test_exp=False, is_test_dataset=False, is_test_view=False, is_novel_view = False
                  ):
         super(Camera, self).__init__()
 
@@ -36,6 +36,7 @@ class Camera(nn.Module):
         self.FoVx = FoVx
         self.FoVy = FoVy
         self.image_name = image_name
+        self.is_novel_view = is_novel_view
 
         try:
             self.data_device = torch.device(data_device)
@@ -44,27 +45,33 @@ class Camera(nn.Module):
             print(f"[Warning] Custom device {data_device} failed, fallback to default cuda device" )
             self.data_device = torch.device("cuda")
 
-        resized_image_rgb = PILtoTorch(image, resolution)
-        gt_image = resized_image_rgb[:3, ...]
-        if alpha_mask is not None:
-            self.alpha_mask = PILtoTorch(alpha_mask, resolution)
-        elif resized_image_rgb.shape[0] == 4:
-            self.alpha_mask = resized_image_rgb[3:4, ...].to(self.data_device)
-        else: 
-            self.alpha_mask = torch.ones_like(resized_image_rgb[0:1, ...].to(self.data_device))
+        if image is not None:
+            resized_image_rgb = PILtoTorch(image, resolution)
+            gt_image = resized_image_rgb[:3, ...]
+            if alpha_mask is not None:
+                self.alpha_mask = PILtoTorch(alpha_mask, resolution)
+            elif resized_image_rgb.shape[0] == 4:
+                self.alpha_mask = resized_image_rgb[3:4, ...].to(self.data_device)
+            else: 
+                self.alpha_mask = torch.ones_like(resized_image_rgb[0:1, ...].to(self.data_device))
 
-        if train_test_exp and is_test_view:
-            if is_test_dataset:
-                self.alpha_mask[..., :self.alpha_mask.shape[-1] // 2] = 0
-            else:
-                self.alpha_mask[..., self.alpha_mask.shape[-1] // 2:] = 0
+            if train_test_exp and is_test_view:
+                if is_test_dataset:
+                    self.alpha_mask[..., :self.alpha_mask.shape[-1] // 2] = 0
+                else:
+                    self.alpha_mask[..., self.alpha_mask.shape[-1] // 2:] = 0
 
-        self.original_image = gt_image.clamp(0.0, 1.0).to(self.data_device)
-        self.image_width = self.original_image.shape[2]
-        self.image_height = self.original_image.shape[1]
+            self.original_image = gt_image.clamp(0.0, 1.0).to(self.data_device)
+            self.image_width = self.original_image.shape[2]
+            self.image_height = self.original_image.shape[1]
 
-        if self.alpha_mask is not None:
-            self.original_image *= self.alpha_mask
+            if self.alpha_mask is not None:
+                self.original_image *= self.alpha_mask
+        else:
+            self.original_image = None
+            self.alpha_mask = None
+            self.image_width = resolution[0]
+            self.image_height = resolution[1]
 
         self.invdepthmap = None
         self.depth_reliable = False
@@ -91,7 +98,7 @@ class Camera(nn.Module):
             self.depth_mask_npy = self.invdepthmap_npy > 0
             self.depth_reliable = True
 
-        self.zfar = 100.0
+        self.zfar = 1000.0
         self.znear = 0.01
 
         self.trans = trans

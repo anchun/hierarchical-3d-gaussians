@@ -138,19 +138,7 @@ def render(
             "radii": radii[subfilter]}
 
 def render_gsplat(
-        viewpoint_camera, pc : GaussianModel, pipe, bg_color : torch.Tensor, scaling_modifier = 1.0, override_color = None, indices = None, use_trained_exp=False, absgrad=False):
-    """
-    Render the scene. 
-    
-    Background tensor (bg_color) must be on GPU!
-    """
- 
-    # Create zero tensor. We will use it to make pytorch return gradients of the 2D (screen-space) means
-    screenspace_points = torch.zeros_like(pc.get_xyz, dtype=pc.get_xyz.dtype, requires_grad=True, device="cuda") + 0
-    try:
-        screenspace_points.retain_grad()
-    except:
-        pass
+        viewpoint_camera, pc : GaussianModel, bg_color : torch.Tensor, scaling_modifier = 1.0, override_color = None, use_trained_exp=False, absgrad=False):
 
     # Set up rasterization configuration
     tanfovx = math.tan(viewpoint_camera.FoVx * 0.5)
@@ -215,11 +203,11 @@ def render_gsplat(
     # Those Gaussians that were frustum culled or had a radius of 0 were not visible.
     # They will be excluded from value updates used in the splitting criteria.
     return {"render": rendered_image,
+            #"alpha": render_alphas[0].permute(2, 0, 1),
             "depth" : rendered_inv_depth[..., 0],
             "viewspace_points": info["means2d"],
             "visibility_filter" : vis_filter.nonzero().flatten().long(),
             "radii": radii_out[vis_filter]}
-
 
 def render_post(
         viewpoint_camera, 

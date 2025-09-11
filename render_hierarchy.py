@@ -134,7 +134,7 @@ if __name__ == "__main__":
     dataset, pipe = lp.extract(args), pp.extract(args)
     gaussians = GaussianModel(dataset.sh_degree)
     gaussians.active_sh_degree = dataset.sh_degree
-    scene = Scene(dataset, gaussians, resolution_scales = [1], create_from_hier=True)
+    scene = Scene(dataset, gaussians, create_from_hier=True)
 
     render_set(args, scene, pipe, os.path.join(args.model_path, f"rendered"), 0.0, args.eval)
 
