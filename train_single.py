@@ -34,9 +34,9 @@ def direct_collate(x):
 
 def mix_dataloader_sampler(loader1, loader2, p1_schedule, total_iterations):
     it1, it2 = iter(loader1), iter(loader2)
-    iteration = 0
-    while iteration < total_iterations:
-        p1 = p1_schedule(iteration)
+    local_iteration = 0
+    while local_iteration < total_iterations:
+        p1 = p1_schedule(local_iteration)
 
         if random.random() < p1:
             try:
@@ -52,7 +52,7 @@ def mix_dataloader_sampler(loader1, loader2, p1_schedule, total_iterations):
                 batch = next(it2)
 
         yield batch
-        iteration += 1
+        local_iteration += 1
 
 def training(dataset, opt, pipe, args):
     first_iter = 0
@@ -79,7 +79,6 @@ def training(dataset, opt, pipe, args):
     ema_Ll1depth_for_log = 0.0
     psnr_val_for_log = 0.0
     ssim_val_for_log = 0.0
-    first_iter += 1
     
     training_generator = DataLoader(scene.getTrainCameras(), num_workers = 8, batch_size = 1, prefetch_factor = 1, persistent_workers = True, collate_fn=direct_collate)
     fix_generator = DataLoader(scene.getNovelViewCameras(), num_workers = 8, batch_size = 1, prefetch_factor = 1, persistent_workers = True, collate_fn=direct_collate)
@@ -93,6 +92,7 @@ def training(dataset, opt, pipe, args):
     
     torch.cuda.set_per_process_memory_fraction(0.9, device=None)
     progress_bar = tqdm(range(first_iter, opt.iterations), desc="Training progress")
+    first_iter += 1
     iteration = first_iter
     while iteration < opt.iterations + 1:
         for viewpoint_batch in mix_dataloader_sampler(training_generator, fix_generator, lambda it: 1.0 if (it < opt.fix_from_iter or not args.generate_novel_views) else 0.7, opt.iterations):
@@ -127,14 +127,20 @@ def training(dataset, opt, pipe, args):
                         alpha_mask = viewpoint_cam.alpha_mask.cuda()
                         image *= alpha_mask
                 else:
-                    print("iteration: ", iteration, " Rendering novel view")
-                    gt_image = difix(prompt="remove degradation", image=image, ref_image=viewpoint_cam.original_image.cuda(), num_inference_steps=1, timesteps=[199], guidance_scale=0.0).images[0]
-                    gt_image = gt_image.resize(image.size, Image.LANCZOS)
+                    gt_image = difix(prompt="remove degradation", 
+                                     image=image, 
+                                     ref_image=viewpoint_cam.original_image.cuda(),
+                                     num_inference_steps=1, timesteps=[199], 
+                                     guidance_scale=0.0, 
+                                     output_type='pt').images[0]
+                    #gt_image = gt_image.resize(gt_image.size, Image.LANCZOS)
                 
                 Ll1 = l1_loss(image, gt_image)
                 Lssim = (1.0 - ssim(image, gt_image))
                 psnr_val = psnr(image, gt_image).mean().double()
                 ssim_val = (1.0 - Lssim).mean().double()
+                if viewpoint_cam.is_novel_view:
+                    print("[", iteration, "] novel view", " PSNR: ", psnr_val.item(), " SSIM: ", ssim_val.item())
 
                 photo_loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * Lssim 
                 loss = photo_loss.clone()

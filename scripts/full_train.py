@@ -55,6 +55,7 @@ if __name__ == '__main__':
     parser.add_argument("--course_iterations", type=int, default=30_000)
     parser.add_argument("--chunks_iterations", type=int, default=30_000)
     parser.add_argument("--max_gaussian_num", type=int, default=20_000_000)
+    parser.add_argument('--generate_novel_views', action='store_true', default=False)
     parser.add_argument("--chunks_post_iterations", type=int, default=0)
     parser.add_argument("--sh_degree", type=int, default=1)
     parser.add_argument('--writing_ply', action="store_true", default=True)
@@ -152,6 +153,8 @@ if __name__ == '__main__':
         train_chunk_args += " --alpha_masks " + masks_dir
     if args.use_npy_depth:
         train_chunk_args += " --use_npy_depth"
+    if args.generate_novel_views:
+        train_chunk_args += " --generate_novel_views"
     if args.extra_training_args != "": 
         train_chunk_args += " " + args.extra_training_args
 

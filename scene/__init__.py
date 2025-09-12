@@ -156,6 +156,10 @@ class Scene:
                 camera_info_novel = camera_info_current._replace(
                                         R = current_w2c[:3, :3].transpose(), 
                                         T = current_w2c[:3, 3], 
+                                        width = camera_info_current.width // 8 * 8, 
+                                        height = camera_info_current.height // 8 * 8, 
+                                        primx = camera_info_current.width // 8 * 4,
+                                        primy = camera_info_current.height // 8 * 4,
                                         image_path = None, 
                                         mask_path = None,
                                         depth_path = None,
