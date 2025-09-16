@@ -12,7 +12,7 @@
 import os
 import torch
 from utils.loss_utils import l1_loss, ssim
-from gaussian_renderer import render_coarse, network_gui
+from gaussian_renderer import render_coarse, render_gsplat
 import sys
 from scene import Scene, GaussianModel
 from utils.general_utils import safe_state
@@ -76,7 +76,10 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
                 if (iteration - 1) == debug_from:
                     pipe.debug = True
 
-                render_pkg = render_coarse(viewpoint_cam, gaussians, pipe, background, indices = indices)
+                if dataset.use_gsplat:
+                    render_pkg = render_gsplat(viewpoint_cam, gaussians, background, use_trained_exp=False, absgrad=dataset.use_absgrad, with_depth=False)
+                else:
+                    render_pkg = render_coarse(viewpoint_cam, gaussians, pipe, background, indices = indices)
                 image, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
 
                 # Loss

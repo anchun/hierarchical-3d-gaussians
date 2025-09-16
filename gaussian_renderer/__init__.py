@@ -138,7 +138,7 @@ def render(
             "radii": radii[subfilter]}
 
 def render_gsplat(
-        viewpoint_camera, pc : GaussianModel, bg_color : torch.Tensor, scaling_modifier = 1.0, override_color = None, use_trained_exp=False, absgrad=False):
+        viewpoint_camera, pc : GaussianModel, bg_color : torch.Tensor, scaling_modifier = 1.0, override_color = None, use_trained_exp=False, absgrad=False, with_depth=True):
 
     # Set up rasterization configuration
     tanfovx = math.tan(viewpoint_camera.FoVx * 0.5)
@@ -179,13 +179,17 @@ def render_gsplat(
         height=int(viewpoint_camera.image_height),
         packed=False,
         sh_degree=sh_degree,
-        render_mode = "RGB+D", # with depth
+        render_mode = "RGB+D" if with_depth else "RGB", # with depth or not
         absgrad=absgrad, # abs gradients
         rasterize_mode = "classic", # ["classic", "antialiased"]
     )
-    rendered_color = render_colors[..., :-1]
-    rendered_inv_depth = 1.0 / render_colors[..., -1:].clamp(min=1e-10) * render_alphas
-    rendered_image = rendered_color[0].permute(2, 0, 1)
+    if with_depth:
+        rendered_color = render_colors[..., :-1]
+        rendered_inv_depth = 1.0 / render_colors[..., -1:].clamp(min=1e-10) * render_alphas
+        rendered_image = rendered_color[0].permute(2, 0, 1)
+    else:
+        rendered_image = render_colors[0].permute(2, 0, 1)
+        rendered_inv_depth = None
     radii = info["radii"].squeeze(0) # [N,]
     try:
         info["means2d"].retain_grad() # [1, N, 2]
@@ -204,7 +208,7 @@ def render_gsplat(
     # They will be excluded from value updates used in the splitting criteria.
     return {"render": rendered_image,
             #"alpha": render_alphas[0].permute(2, 0, 1),
-            "depth" : rendered_inv_depth[..., 0],
+            "depth" : rendered_inv_depth[..., 0] if with_depth else None,
             "viewspace_points": info["means2d"],
             "visibility_filter" : vis_filter.nonzero().flatten().long(),
             "radii": radii_out[vis_filter]}
