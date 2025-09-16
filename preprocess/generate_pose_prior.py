@@ -260,6 +260,7 @@ if __name__ == '__main__':
         shutil.copytree(args.depths_dir, depths_target_path)
     # align models
     print("aligning models...")
+    os.makedirs(f"{args.project_dir}/camera_calibration/aligned/sparse/model_aligner", exist_ok=True)
     colmap_model_aligner_args = [
         colmap_exe, "model_aligner",
         "--database_path", db_filepath,
