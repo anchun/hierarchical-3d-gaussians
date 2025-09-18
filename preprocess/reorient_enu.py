@@ -2,6 +2,7 @@ import numpy as np
 import argparse
 import os, time
 from read_write_model import *
+from scipy.spatial.transform import Rotation
 
 def rotate_camera(qvec, tvec, rot_matrix):
     # Assuming cameras have 'T' (translation) field
@@ -35,6 +36,10 @@ def rotate_camera(qvec, tvec, rot_matrix):
 
     return new_pos, new_rot
 
+def parse_angle(s):
+    s = s.strip("[]")
+    return [float(x) for x in s.split(",")]
+
 def main():
 
     parser = argparse.ArgumentParser(description='Example script with command-line arguments.')
@@ -42,6 +47,7 @@ def main():
     # Add command-line argument(s)
     parser.add_argument('--input_path', type=str, help='Path to input colmap dir',  required=True)
     parser.add_argument('--output_path', type=str, help='Path to output colmap dir',  required=True)
+    parser.add_argument('--angle', type=parse_angle, help="input for rotation angles in zyx order [rotz, roty,rotx] in degrees", default="[0,90,90]")
     
     # Parse the command-line arguments
     args = parser.parse_args()
@@ -58,7 +64,7 @@ def main():
     print("Input path:", args.input_path)
     print("Output path:", args.output_path)
 
-    rotation_matrix = np.array([[0, 0, 1], [-1, 0, 0], [0, -1, 0]]) # [right, down, forward] to [forward, left, up]
+    rotation_matrix = Rotation.from_euler('zyx', args.angle, degrees=True).as_matrix()
     rotation_matrix = np.linalg.inv(rotation_matrix)
 
     # Read colmap cameras, images and points
