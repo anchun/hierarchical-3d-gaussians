@@ -4,6 +4,8 @@ for DATASET_DIR in "${scenes[@]}"; do
     echo "Processing dataset: ${DATASET_DIR}"
     startTime_s=`date +%s`
 
+    # python preprocess/convert_notr_2_colmap.py --project_dir ${DATASET_DIR}
+    # python preprocess/undistort_waymo.py --project_dir ${DATASET_DIR}
     # python preprocess/undistort_wayve.py --project_dir ${DATASET_DIR}
     python preprocess/generate_pose_prior.py --project_dir ${DATASET_DIR}
     python preprocess/generate_chunks.py --project_dir ${DATASET_DIR} --skip_bundle_adjustment
