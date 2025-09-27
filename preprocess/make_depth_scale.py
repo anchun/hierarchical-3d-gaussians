@@ -23,7 +23,9 @@ def get_scales(key, cameras, images, points3d_ordered, points3d_masks, args):
     pts_idx = images_metas[key].point3D_ids
 
     pts_idx[pts_idx>=len(points3d_ordered)] = -1    # remove points3d that are not in the sparse model
-    mask = (pts_idx >= 0) & points3d_masks[pts_idx]  # mask for valid points3d
+    mask = (pts_idx >= 0)
+    if len(pts_idx) > 0:
+        mask = mask & points3d_masks[pts_idx]  # mask for valid points3d
 
     pts_idx = pts_idx[mask]
     valid_xys = image_meta.xys[mask]
