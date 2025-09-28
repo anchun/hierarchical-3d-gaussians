@@ -28,8 +28,9 @@ def read_camera_txt(filepath):
             camera_id = int(tmp[0])
             if i < 200:
                 fx,fy,cx,cy = float(tmp[4]), float(tmp[5]), float(tmp[6]), float(tmp[7])
+                k1,k2,p1,p2,k3 = float(tmp[8]), float(tmp[9]), float(tmp[10]), float(tmp[11]), float(tmp[12])
                 K = np.array([[fx, 0, cx], [0, fy, cy], [0, 0, 1]])
-                D = np.array([0, 0, 0, 0])
+                D = np.array([k1,k2,p1,p2,k3])
 
                 cameras[camera_id] = {'K':K,'D':D}
 
@@ -44,6 +45,7 @@ def undistorted_image_and_intrinsics(spath):
         cindex = camera_indexs[camera_name]
 
         K = cameras.get(cindex)['K']
+        D = cameras.get(cindex)['D']
         camera_image_path = os.path.join(spath, 'colmap/images', camera_name)
         camera_mask_path = os.path.join(spath, 'colmap/masks', camera_name)
         camera_output_image_path = os.path.join(spath, 'inputs/images', camera_name)
@@ -54,18 +56,20 @@ def undistorted_image_and_intrinsics(spath):
         for filename in image_names:
             image = cv2.imread(os.path.join(camera_image_path, filename))
             # undistort
-            print("undistorting only with cropping: ", os.path.join(camera_image_path, filename))
+            print("undistorting: ", os.path.join(camera_image_path, filename))
             h, w = image.shape[:2]
+            newK, roi = cv2.getOptimalNewCameraMatrix(K, D, (w, h), 0, (w, h))
+            map1, map2 = cv2.initUndistortRectifyMap(K, D, None, newK, (w, h), 5)
+            undistorted_image = cv2.remap(image, map1, map2, cv2.INTER_LINEAR)
             # crop
             x, y = 0, 0
             cx, cy = K[0, 2], K[1, 2]
-            new_w, new_h = round(max(cx - x, x + w - cx)).__int__() * 2, round(max(cy - y, y + h - cy)).__int__() * 2
+            new_w, new_h = round(max(cx - x, x + w - cx) * 2).__int__(), round(max(cy - y, y + h - cy) * 2).__int__()
             new_x, new_y = round(new_w / 2 - cx).__int__(), round(new_h / 2 - cy).__int__()
             new_x, new_y = max(new_x, 0), max(new_y, 0)
-            newK = K.copy()
             newK[0, 2], newK[1, 2] = new_w / 2, new_h / 2
             image_out = np.zeros((new_h, new_w, 3), dtype=image.dtype)
-            image_out[new_y:new_y + h, new_x:new_x + w] = image
+            image_out[new_y:new_y + h, new_x:new_x + w] = undistorted_image
             # output image
             distorted_intrinsics[camera_name] = newK
             distorted_w[camera_name] = new_w
@@ -75,8 +79,9 @@ def undistorted_image_and_intrinsics(spath):
             mask_filename = Path(filename).with_suffix(".png")
             if os.path.exists(os.path.join(camera_mask_path, mask_filename)):
                 mask = cv2.imread(os.path.join(camera_mask_path, mask_filename))
+                undistorted_mask = cv2.remap(mask, map1, map2, interpolation=cv2.INTER_NEAREST)
                 mask_out = np.zeros((new_h, new_w, 3), dtype=mask.dtype)
-                mask_out[new_y:new_y + h, new_x:new_x + w] = mask
+                mask_out[new_y:new_y + h, new_x:new_x + w] = undistorted_mask
                 cv2.imwrite(os.path.join(camera_output_masks_path, mask_filename), mask_out)
 
     # sparse

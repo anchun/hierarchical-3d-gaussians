@@ -93,8 +93,8 @@ if __name__ == '__main__':
         for filename in os.listdir(intrinsics_dir):
             camera_id = filename.split('.')[0]
             intrinsic = np.loadtxt(os.path.join(intrinsics_dir, filename))
-            fx, fy, cx, cy = intrinsic[0], intrinsic[1], intrinsic[2], intrinsic[3]
-            output = '{} {} {} {} {} {} {} {}'.format(camera_id, 'PINHOLE', widths[camera_id], heights[camera_id], fx, fy, cx, cy)
+            # fx, fy, cx, cy, k1, k2, p1, p2, k3, k4, k5, k6
+            output = '{} {} {} {} {} {} {} {} {} {} {} {} {} 0.0 0.0 0.0'.format(camera_id, 'FULL_OPENCV', widths[camera_id], heights[camera_id], *intrinsic)
             f.write(output + '\n')
 
     with open(os.path.join(colmap_modle_path, "points3D.txt"), 'w') as output:

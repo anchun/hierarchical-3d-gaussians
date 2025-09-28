@@ -69,6 +69,7 @@ if __name__ == '__main__':
     parser.add_argument('--with_camera_loop', action="store_true", default=False)
     parser.add_argument('--with_model_aligner', action="store_true", default=False)
     parser.add_argument('--with_reorient', action="store_true", default=False)
+    parser.add_argument('--n_seq_matches_per_view', default=20, type=int, help="number of sequential matches per view")
     args = parser.parse_args()
     
     if args.images_dir == "":
@@ -123,7 +124,7 @@ if __name__ == '__main__':
             "--image_path", f"{args.images_dir}",
             "--database_path", db_filepath,
             "--output_path", sfm_pairs,
-            "--n_seq_matches_per_view",f"20"
+            "--n_seq_matches_per_view",f"{args.n_seq_matches_per_view}",
         ]
         if args.with_camera_loop:
             make_colmap_custom_matcher_args.append("--with_camera_loop")
