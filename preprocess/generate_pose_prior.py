@@ -280,6 +280,12 @@ if __name__ == '__main__':
         except subprocess.CalledProcessError as e:
             print(f"Error executing model_aligner: {e}")
             sys.exit(1)
+        print("copying aligned models back to rectified...")
+        os.rename(f"{args.project_dir}/camera_calibration/rectified/sparse", f"{args.project_dir}/camera_calibration/rectified/sparse_unaligned")
+        os.makedirs(f"{args.project_dir}/camera_calibration/rectified/sparse", exist_ok=True)
+        shutil.copyfile(f"{args.project_dir}/camera_calibration/aligned/sparse/0/images.bin", f"{args.project_dir}/camera_calibration/rectified/sparse/images.bin")
+        shutil.copyfile(f"{args.project_dir}/camera_calibration/aligned/sparse/0/cameras.bin", f"{args.project_dir}/camera_calibration/rectified/sparse/cameras.bin")
+        shutil.copyfile(f"{args.project_dir}/camera_calibration/aligned/sparse/0/points3D.bin", f"{args.project_dir}/camera_calibration/rectified/sparse/points3D.bin")
     elif args.with_reorient:
         # reorient to enu coordinates
         reorient_to_enu_args = [
@@ -292,6 +298,12 @@ if __name__ == '__main__':
         except subprocess.CalledProcessError as e:
             print(f"Error executing reorient_to_enu_args: {e}")
             sys.exit(1)
+        print("copying aligned models back to rectified...")
+        os.rename(f"{args.project_dir}/camera_calibration/rectified/sparse", f"{args.project_dir}/camera_calibration/rectified/sparse_unaligned")
+        os.makedirs(f"{args.project_dir}/camera_calibration/rectified/sparse", exist_ok=True)
+        shutil.copyfile(f"{args.project_dir}/camera_calibration/aligned/sparse/0/images.bin", f"{args.project_dir}/camera_calibration/rectified/sparse/images.bin")
+        shutil.copyfile(f"{args.project_dir}/camera_calibration/aligned/sparse/0/cameras.bin", f"{args.project_dir}/camera_calibration/rectified/sparse/cameras.bin")
+        shutil.copyfile(f"{args.project_dir}/camera_calibration/aligned/sparse/0/points3D.bin", f"{args.project_dir}/camera_calibration/rectified/sparse/points3D.bin")
     else:
         print("copying models to aligned...")
         shutil.copyfile(f"{args.project_dir}/camera_calibration/rectified/sparse/images.bin", f"{args.project_dir}/camera_calibration/aligned/sparse/0/images.bin")
