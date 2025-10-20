@@ -265,6 +265,25 @@ if __name__ == '__main__':
     print("Step4: compute statistics between original and dense road points...")
     z_diff, dist_xy = compute_z_diff(pcd, dense_pcd)
     print("平均XY距离:", np.mean(dist_xy), "平均Z差:", np.mean(z_diff))
+    
+    print("Step5: reconstruct road surface mesh using Ball Pivoting...")
+    pcd = dense_pcd
+    pcd.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.2, max_nn=30))
+    pcd.orient_normals_consistent_tangent_plane(50)
+    distances = pcd.compute_nearest_neighbor_distance()
+    avg_dist = np.mean(distances)
+    bpa_radius_scale = 1.5 # 经验公式： r ≈ (1.5 ~ 3.0) × avg_dist
+    radius = bpa_radius_scale * avg_dist
+    print(f"使用Ball Pivoting半径: {radius:.5f}")
+    mesh = o3d.geometry.TriangleMesh.create_from_point_cloud_ball_pivoting(
+        pcd, o3d.utility.DoubleVector([radius, radius * 2, radius * 4])
+    )
+    mesh.remove_unreferenced_vertices()
+    mesh.remove_degenerate_triangles()
+    mesh.remove_duplicated_triangles()
+    mesh.remove_non_manifold_edges()
+    mesh.compute_vertex_normals()
+    o3d.io.write_triangle_mesh(os.path.join(model_dir, "roadpoints_mesh.ply"), mesh)
 
     global_end = time.time()
     print(f"process road sfm took {global_end - start_time} seconds.")
