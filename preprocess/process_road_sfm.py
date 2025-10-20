@@ -97,14 +97,13 @@ def densify_road_with_alpha(pcd, alpha=0.5, resolution=0.1, interp_method='cubic
 
     print("进行高度插值...")
     grid_z = griddata((x, y), z, (query_xy[:, 0], query_xy[:, 1]), method=interp_method)
-    # if np.any(np.isnan(grid_z)):
-    #     z_fallback = griddata((x, y), z, (query_xy[:, 0], query_xy[:, 1]), method='nearest')
-    #     grid_z[np.isnan(grid_z)] = z_fallback[np.isnan(grid_z)]
     valid = ~np.isnan(grid_z)
+    grid_rgb = griddata((x, y), np.asarray(pcd.colors), (query_xy[:, 0], query_xy[:, 1]), method='nearest')
 
     dense_points = np.column_stack([query_xy[valid], grid_z[valid]])
 
     dense_pcd = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(dense_points))
+    dense_pcd.colors = o3d.utility.Vector3dVector(grid_rgb[valid])
     print(f"生成密集路面点云，共 {len(dense_points)} 个点。")
 
     return dense_pcd, mesh
@@ -216,23 +215,30 @@ if __name__ == '__main__':
     # further remove z outliers in local neighborhood
     pcd_clean, ind = remove_z_outliers(pcd_clean, radius=1.0, z_thresh=0.1)
     print(f"Cleaned road points from {len(pcd.points)} to {len(pcd_clean.points)} points.")
-    onroad_points_xyz_clean = np.asarray(pcd_clean.points)
-    onroad_points_rgb_clean = np.asarray(pcd_clean.colors)
     dtype_full = [(attribute, 'f4') for attribute in ['x', 'y', 'z', 'r', 'g', 'b']]
-    onroad_points_attributes = np.concatenate((onroad_points_xyz_clean, onroad_points_rgb_clean), axis=1)
-    elements = np.empty(onroad_points_xyz_clean.shape[0], dtype=dtype_full)
+    onroad_points_xyz = np.asarray(pcd_clean.points)
+    onroad_points_rgb = np.asarray(pcd_clean.colors)
+    onroad_points_attributes = np.concatenate((onroad_points_xyz, onroad_points_rgb), axis=1)
+    elements = np.empty(onroad_points_xyz.shape[0], dtype=dtype_full)
     elements[:] = list(map(tuple, onroad_points_attributes))
     el = PlyElement.describe(elements, 'vertex')
     ply_path = os.path.join(model_dir, f"roadpoints.ply")
     PlyData([el]).write(ply_path)
     
     print("Step3: densify road points...")
-    pcd = o3d.io.read_point_cloud(os.path.join(model_dir, f"roadpoints.ply"), format='ply')
+    pcd = pcd_clean
+    #pcd = o3d.io.read_point_cloud(os.path.join(model_dir, f"roadpoints.ply"), format='ply')
     dense_pcd, _ = densify_road_with_alpha(
         pcd, alpha=2.0, resolution=0.1, interp_method='linear'
     )
-    ply_path = os.path.join(model_dir, "roadpoints_dense.ply")
-    o3d.io.write_point_cloud(ply_path, dense_pcd)
+    onroad_points_xyz = np.asarray(dense_pcd.points)
+    onroad_points_rgb = np.asarray(dense_pcd.colors)
+    onroad_points_attributes = np.concatenate((onroad_points_xyz, onroad_points_rgb), axis=1)
+    elements = np.empty(onroad_points_xyz.shape[0], dtype=dtype_full)
+    elements[:] = list(map(tuple, onroad_points_attributes))
+    el = PlyElement.describe(elements, 'vertex')
+    ply_path = os.path.join(model_dir, f"roadpoints_dense.ply")
+    PlyData([el]).write(ply_path)
     
     print("Step4: compute statistics between original and dense road points...")
     z_diff, dist_xy = compute_z_diff(pcd, dense_pcd)
