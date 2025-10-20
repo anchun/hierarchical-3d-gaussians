@@ -43,9 +43,9 @@ def remove_z_outliers(pcd, radius=0.2, z_thresh=0.05):
     keep_idx = np.where(keep_mask)[0]
     return pcd.select_by_index(keep_idx), keep_idx
 
-def alpha_shape_to_polygon(pcd, alpha=0.5):
+def alpha_shape_and_cameras_world_to_polygon(pcd, cameras_world, alpha=0.5):
     """
-    将点云生成的 alpha-shape 网格转换为 Shapely 多边形
+    将点云生成的 alpha-shape 网格和相机位置结合，转换为二维 Shapely 多边形
     """
     #pcd.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.1, max_nn=30))
     mesh = o3d.geometry.TriangleMesh.create_from_point_cloud_alpha_shape(pcd, alpha)
@@ -54,14 +54,19 @@ def alpha_shape_to_polygon(pcd, alpha=0.5):
     
     # 将每个三角形转换为 Polygon 并进行合并
     polys = [Polygon(vertices[t]) for t in triangles]
+    CAM_EXT = 0.5 # 以相机为中心的边长1米的正方形区域
+    for cam in cameras_world:
+        coords = ((cam[0] - CAM_EXT, cam[1] - CAM_EXT), (cam[0] + CAM_EXT, cam[1] - CAM_EXT),(cam[0] + CAM_EXT, cam[1] + CAM_EXT), (cam[0] - CAM_EXT, cam[1] + CAM_EXT), (cam[0] - CAM_EXT, cam[1] - CAM_EXT))
+        polys.append(Polygon(coords))
     merged = unary_union(polys)  # 自动合并成单个或多个 Polygon
     return merged, mesh
 
-def densify_road_with_alpha(pcd, alpha=0.5, resolution=0.1, interp_method='cubic'):
+def densify_road_with_alpha(pcd, cameras_world, alpha=0.5, resolution=0.1, interp_method='cubic'):
     """
     基于 α-shape 约束的路面点云插值算法
     输入：
         pcd: Open3D 点云对象 (稀疏路面点)
+        cameras_world: 相机在世界坐标系下的位置列表
         alpha: α-shape 参数，越小边界越贴合
         resolution: 网格分辨率（单位：米）
         interp_method: 插值方式 ['linear', 'nearest', 'cubic']
@@ -70,7 +75,7 @@ def densify_road_with_alpha(pcd, alpha=0.5, resolution=0.1, interp_method='cubic
         mesh: 生成的 α-shape 网格 (Open3D 对象)
     """
     print("计算 α-shape 网格...")
-    polygon, mesh = alpha_shape_to_polygon(pcd, alpha)
+    polygon, mesh = alpha_shape_and_cameras_world_to_polygon(pcd, cameras_world, alpha)
     prepared_poly = prep(polygon)  # 加速点在多边形内判断
 
     # 提取原始点坐标
@@ -88,9 +93,12 @@ def densify_road_with_alpha(pcd, alpha=0.5, resolution=0.1, interp_method='cubic
     print("判断网格点是否在 α-shape 和孔洞 内部...")
     def inside_mask_func(px, py):
         return prepared_poly.contains(Point(px, py)) or \
-                ( (prepared_poly.contains(Point(px - 1, py)) or prepared_poly.contains(Point(px - 2, py))) and (prepared_poly.contains(Point(px + 1, py)) or prepared_poly.contains(Point(px + 2, py))) ) or \
-                ( (prepared_poly.contains(Point(px, py - 1)) or prepared_poly.contains(Point(px, py - 2))) and (prepared_poly.contains(Point(px, py + 1)) or prepared_poly.contains(Point(px, py + 2))) ) or \
-                ( (prepared_poly.contains(Point(px-0.707, py-0.707)) or prepared_poly.contains(Point(px-1.414, py-1.414))) and (prepared_poly.contains(Point(px+0.707, py+0.707)) or prepared_poly.contains(Point(px+1.414, py+1.414))) )
+                ( (prepared_poly.contains(Point(px - 1, py)) or prepared_poly.contains(Point(px - 2, py))) and \
+                    (prepared_poly.contains(Point(px + 1, py)) or prepared_poly.contains(Point(px + 2, py))) ) or \
+                ( (prepared_poly.contains(Point(px, py - 1)) or prepared_poly.contains(Point(px, py - 2))) and \
+                    (prepared_poly.contains(Point(px, py + 1)) or prepared_poly.contains(Point(px, py + 2))) ) or \
+                ( (prepared_poly.contains(Point(px-0.707, py-0.707)) or prepared_poly.contains(Point(px-1.414, py-1.414))) and \
+                    (prepared_poly.contains(Point(px+0.707, py+0.707)) or prepared_poly.contains(Point(px+1.414, py+1.414))) )
     inside_mask = np.array([inside_mask_func(px, py)  for px, py in grid_xy])
 
     query_xy = grid_xy[inside_mask]
@@ -164,10 +172,24 @@ if __name__ == '__main__':
     for camera_id, camera in cameras.items():
         fx, fy, cx, cy = camera.params[0], camera.params[1], camera.params[2], camera.params[3]
         camerasK[camera_id] = np.array([[fx, 0, cx], [0, fy, cy], [0, 0, 1]])
+    mid_camera_id = (len(cameras) - 1) // 2
+    opencv2camera = np.array([[0, 0, 1, 0], [-1, 0, 0, 0], [0, -1, 0, 0], [0, 0, 0, 1]])
+    location_offset = [-3, -2, -1, 0, 1, 2]
     # calculate image masks for each images
-    print("Loading road masks for images...")
+    print("Loading camera poses and road masks for images...")
     image_roadmasks = {}
+    cameras_world = []
     for image_id, image_meta in tqdm.tqdm(images_metas.items()):
+        w2c = np.eye(4)
+        w2c[:3, :3] = pyquaternion.Quaternion(image_meta.qvec).rotation_matrix
+        w2c[:3, 3] = np.array(image_meta.tvec)
+        camera_pose = np.linalg.inv(opencv2camera @ w2c)
+        if mid_camera_id == image_meta.camera_id:
+            for offset in location_offset:
+                cameras_world.append(camera_pose[:3, 3] + camera_pose[:3, 0] * offset)
+        else:
+            cameras_world.append(camera_pose[:3, 3])
+            
         mask_path = os.path.join(roadmasks_dir, image_meta.name.split('.')[0] + '.png')
         if os.path.exists(mask_path):
             image_roadmasks[image_id] = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
@@ -229,7 +251,7 @@ if __name__ == '__main__':
     pcd = pcd_clean
     #pcd = o3d.io.read_point_cloud(os.path.join(model_dir, f"roadpoints.ply"), format='ply')
     dense_pcd, _ = densify_road_with_alpha(
-        pcd, alpha=2.0, resolution=0.1, interp_method='linear'
+        pcd, cameras_world, alpha=2.0, resolution=0.1, interp_method='linear'
     )
     onroad_points_xyz = np.asarray(dense_pcd.points)
     onroad_points_rgb = np.asarray(dense_pcd.colors)
