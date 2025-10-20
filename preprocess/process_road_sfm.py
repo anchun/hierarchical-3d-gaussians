@@ -6,6 +6,11 @@ import argparse
 import os, time
 from plyfile import PlyData, PlyElement
 import open3d as o3d
+from scipy.interpolate import griddata
+from sklearn.neighbors import KDTree
+from shapely.geometry import Polygon, Point
+from shapely.ops import unary_union
+from shapely.prepared import prep
 import cv2
 import tqdm
 
@@ -38,6 +43,107 @@ def remove_z_outliers(pcd, radius=0.2, z_thresh=0.05):
     keep_idx = np.where(keep_mask)[0]
     return pcd.select_by_index(keep_idx), keep_idx
 
+def alpha_shape_to_polygon(pcd, alpha=0.5):
+    """
+    将点云生成的 alpha-shape 网格转换为 Shapely 多边形
+    """
+    #pcd.estimate_normals(search_param=o3d.geometry.KDTreeSearchParamHybrid(radius=0.1, max_nn=30))
+    mesh = o3d.geometry.TriangleMesh.create_from_point_cloud_alpha_shape(pcd, alpha)
+    vertices = np.asarray(mesh.vertices)[:, :2]
+    triangles = np.asarray(mesh.triangles, dtype=int)
+    
+    # 将每个三角形转换为 Polygon 并进行合并
+    polys = [Polygon(vertices[t]) for t in triangles]
+    merged = unary_union(polys)  # 自动合并成单个或多个 Polygon
+    return merged, mesh
+
+def densify_road_with_alpha(pcd, alpha=0.5, resolution=0.1, interp_method='cubic'):
+    """
+    基于 α-shape 约束的路面点云插值算法
+    输入：
+        pcd: Open3D 点云对象 (稀疏路面点)
+        alpha: α-shape 参数，越小边界越贴合
+        resolution: 网格分辨率（单位：米）
+        interp_method: 插值方式 ['linear', 'nearest', 'cubic']
+    输出：
+        dense_pcd: 插值后的密集路面点云 (Open3D 对象)
+        mesh: 生成的 α-shape 网格 (Open3D 对象)
+    """
+    print("计算 α-shape 网格...")
+    polygon, mesh = alpha_shape_to_polygon(pcd, alpha)
+    prepared_poly = prep(polygon)  # 加速点在多边形内判断
+
+    # 提取原始点坐标
+    pts = np.asarray(pcd.points)
+    x, y, z = pts[:, 0], pts[:, 1], pts[:, 2]
+
+    # 生成插值网格
+    x_min, x_max = x.min(), x.max()
+    y_min, y_max = y.min(), y.max()
+    gx = np.arange(x_min, x_max, resolution)
+    gy = np.arange(y_min, y_max, resolution)
+    grid_x, grid_y = np.meshgrid(gx, gy)
+    grid_xy = np.column_stack([grid_x.ravel(), grid_y.ravel()])
+
+    print("判断网格点是否在 α-shape 和孔洞 内部...")
+    def inside_mask_func(px, py):
+        return prepared_poly.contains(Point(px, py)) or \
+                ( (prepared_poly.contains(Point(px - 1, py)) or prepared_poly.contains(Point(px - 2, py))) and (prepared_poly.contains(Point(px + 1, py)) or prepared_poly.contains(Point(px + 2, py))) ) or \
+                ( (prepared_poly.contains(Point(px, py - 1)) or prepared_poly.contains(Point(px, py - 2))) and (prepared_poly.contains(Point(px, py + 1)) or prepared_poly.contains(Point(px, py + 2))) ) or \
+                ( (prepared_poly.contains(Point(px-0.707, py-0.707)) or prepared_poly.contains(Point(px-1.414, py-1.414))) and (prepared_poly.contains(Point(px+0.707, py+0.707)) or prepared_poly.contains(Point(px+1.414, py+1.414))) )
+    inside_mask = np.array([inside_mask_func(px, py)  for px, py in grid_xy])
+
+    query_xy = grid_xy[inside_mask]
+
+    print("进行高度插值...")
+    grid_z = griddata((x, y), z, (query_xy[:, 0], query_xy[:, 1]), method=interp_method)
+    # if np.any(np.isnan(grid_z)):
+    #     z_fallback = griddata((x, y), z, (query_xy[:, 0], query_xy[:, 1]), method='nearest')
+    #     grid_z[np.isnan(grid_z)] = z_fallback[np.isnan(grid_z)]
+    valid = ~np.isnan(grid_z)
+
+    dense_points = np.column_stack([query_xy[valid], grid_z[valid]])
+
+    dense_pcd = o3d.geometry.PointCloud(o3d.utility.Vector3dVector(dense_points))
+    print(f"生成密集路面点云，共 {len(dense_points)} 个点。")
+
+    return dense_pcd, mesh
+
+def compute_z_diff(pcd1, pcd2):
+    """
+    计算点云A中每个点与点云B中最近(x,y)点的z差。
+    参数:
+        pc_a: np.ndarray, shape (N, 3) -> 点云A (x, y, z)
+        pc_b: np.ndarray, shape (M, 3) -> 点云B (x, y, z)
+    返回:
+        z_diff: np.ndarray, shape (N,) -> 每个点的 z 差值
+        idx_b: np.ndarray, shape (N,) -> 匹配到的B中索引
+        dist_xy: np.ndarray, shape (N,) -> (x,y)距离
+    """
+    pc_a = np.asarray(pcd1.points)
+    pc_b = np.asarray(pcd2.points)
+
+    # 提取平面坐标
+    xy_a = pc_a[:, :2]
+    xy_b = pc_b[:, :2]
+
+    # 构建KDTree，只在x,y平面上
+    tree = KDTree(xy_b)
+
+    # 查找A中每个点在B中的最近邻
+    dist_xy, idx_b = tree.query(xy_a, k=1)
+    idx_b = idx_b.squeeze()
+    dist_xy = dist_xy.squeeze()
+
+    # 获取对应的z值
+    z_a = pc_a[:, 2]
+    z_b = pc_b[idx_b, 2]
+
+    # 计算z差
+    z_diff = z_a - z_b
+
+    return z_diff, dist_xy
+
 if __name__ == '__main__':
 
     parser = argparse.ArgumentParser(description='Automatically reorient colmap')
@@ -51,6 +157,7 @@ if __name__ == '__main__':
 
     # Read colmap cameras, images and points
     start_time = time.time()
+    print("Step0: read colmap model and road masks...")
     cameras, images_metas, points3d_in = read_model(model_dir)
     # calcuate camera K
     print("Calculating camera intrinsics...")
@@ -69,7 +176,7 @@ if __name__ == '__main__':
             image_roadmasks[image_id] = None
             print(f"Warning: roadmask for image {image_meta.name} not found at {mask_path}")
     
-    print("Extracting road points from SfM points...")
+    print("Step1: Extracting road points from SfM points...")
     onroad_points_xyz = []
     onroad_points_rgb = []
     for pid, pdata in tqdm.tqdm(points3d_in.items()):
@@ -99,15 +206,8 @@ if __name__ == '__main__':
     print(f"Total {len(onroad_points_xyz)} road points extracted from {len(points3d_in)} points.")
     onroad_points_xyz = np.array(onroad_points_xyz)
     onroad_points_rgb = np.array(onroad_points_rgb)
-    dtype_full = [(attribute, 'f4') for attribute in ['x', 'y', 'z', 'r', 'g', 'b']]
-    onroad_points_attributes = np.concatenate((onroad_points_xyz, onroad_points_rgb), axis=1)
-    elements = np.empty(onroad_points_xyz.shape[0], dtype=dtype_full)
-    elements[:] = list(map(tuple, onroad_points_attributes))
-    el = PlyElement.describe(elements, 'vertex')
-    ply_path = os.path.join(model_dir, f"roadpoints_raw.ply")
-    PlyData([el]).write(ply_path)
     
-    #pcd = o3d.io.read_point_cloud(ply_path, format='ply')
+    print("Step2: Cleaning road points...")
     pcd = o3d.geometry.PointCloud()
     pcd.points = o3d.utility.Vector3dVector(onroad_points_xyz)
     pcd.colors = o3d.utility.Vector3dVector(onroad_points_rgb)
@@ -118,12 +218,25 @@ if __name__ == '__main__':
     print(f"Cleaned road points from {len(pcd.points)} to {len(pcd_clean.points)} points.")
     onroad_points_xyz_clean = np.asarray(pcd_clean.points)
     onroad_points_rgb_clean = np.asarray(pcd_clean.colors)
+    dtype_full = [(attribute, 'f4') for attribute in ['x', 'y', 'z', 'r', 'g', 'b']]
     onroad_points_attributes = np.concatenate((onroad_points_xyz_clean, onroad_points_rgb_clean), axis=1)
     elements = np.empty(onroad_points_xyz_clean.shape[0], dtype=dtype_full)
     elements[:] = list(map(tuple, onroad_points_attributes))
     el = PlyElement.describe(elements, 'vertex')
     ply_path = os.path.join(model_dir, f"roadpoints.ply")
     PlyData([el]).write(ply_path)
+    
+    print("Step3: densify road points...")
+    pcd = o3d.io.read_point_cloud(os.path.join(model_dir, f"roadpoints.ply"), format='ply')
+    dense_pcd, _ = densify_road_with_alpha(
+        pcd, alpha=2.0, resolution=0.1, interp_method='linear'
+    )
+    ply_path = os.path.join(model_dir, "roadpoints_dense.ply")
+    o3d.io.write_point_cloud(ply_path, dense_pcd)
+    
+    print("Step4: compute statistics between original and dense road points...")
+    z_diff, dist_xy = compute_z_diff(pcd, dense_pcd)
+    print("平均XY距离:", np.mean(dist_xy), "平均Z差:", np.mean(z_diff))
 
     global_end = time.time()
     print(f"process road sfm took {global_end - start_time} seconds.")
