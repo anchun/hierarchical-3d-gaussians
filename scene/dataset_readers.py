@@ -36,6 +36,7 @@ class CameraInfo(NamedTuple):
     depth_params: dict
     image_path: str
     mask_path: str
+    mask2_path: str
     depth_path: str
     depth_npy_path: str
     ref_image_path: str
@@ -74,7 +75,7 @@ def getNerfppNorm(cam_info):
 
     return {"translate": translate, "radius": radius}
 
-def readColmapCameras(cam_extrinsics, cam_intrinsics, depths_params, images_folder, masks_folder, depths_folder, test_cam_names_list, use_npy_depth=False):
+def readColmapCameras(cam_extrinsics, cam_intrinsics, depths_params, images_folder, masks_folder, masks2_folder, depths_folder, test_cam_names_list, use_npy_depth=False):
     cam_infos = []
     for idx, key in enumerate(cam_extrinsics):
         sys.stdout.write('\r')
@@ -127,6 +128,7 @@ def readColmapCameras(cam_extrinsics, cam_intrinsics, depths_params, images_fold
             image_name = f"{extr.name[:-n_remove]}.png"
 
         mask_path = os.path.join(masks_folder, f"{extr.name[:-n_remove]}.png") if masks_folder != "" else ""
+        mask2_path = os.path.join(masks2_folder, f"{extr.name[:-n_remove]}.png") if masks2_folder != "" else ""
         depth_path = os.path.join(depths_folder, f"{extr.name[:-n_remove]}.png") if depths_folder != "" else ""
         if use_npy_depth:
             depth_path = ""
@@ -135,7 +137,7 @@ def readColmapCameras(cam_extrinsics, cam_intrinsics, depths_params, images_fold
             depth_npy_path = None
 
         cam_info = CameraInfo(uid=uid, R=R, T=T, FovY=FovY, FovX=FovX, primx=primx, primy=primy, depth_params=depth_params,
-                              image_path=image_path, mask_path=mask_path, depth_path=depth_path, depth_npy_path=depth_npy_path, image_name=image_name, 
+                              image_path=image_path, mask_path=mask_path, mask2_path=mask2_path, depth_path=depth_path, depth_npy_path=depth_npy_path, image_name=image_name, 
                               ref_image_path=None, width=width, height=height, is_test=image_name in test_cam_names_list)
         cam_infos.append(cam_info)
     sys.stdout.write('\n')
@@ -148,6 +150,8 @@ def fetchPly(path):
 
     if('red' in vertices):
         colors = np.vstack([vertices['red'], vertices['green'], vertices['blue']]).T / 255.0
+    elif('r' in vertices):
+        colors = np.vstack([vertices['r'], vertices['g'], vertices['b']]).T
     else:
         colors = np.ones_like(positions) * 0.5
     if('nx' in vertices):
@@ -186,19 +190,22 @@ def storePly(path, xyz, rgb):
     ply_data = PlyData([vertex_element])
     ply_data.write(path)
 
-def readColmapSceneInfo(path, images, masks, depths, eval, train_test_exp, llffhold=None, use_npy_depth=False, eval_camera_name=""):
+def readColmapSceneInfo(path, images, masks1, depths, eval, train_test_exp, llffhold=None, use_npy_depth=False, eval_camera_name="", masks2=""):
+    colmap_path = os.path.join(path, "sparse")
+    if os.path.exists(os.path.join(colmap_path, "0")):
+        colmap_path = os.path.join(colmap_path, "0")
     try:
-        cameras_extrinsic_file = os.path.join(path, "sparse/0", "images.bin")
-        cameras_intrinsic_file = os.path.join(path, "sparse/0", "cameras.bin")
+        cameras_extrinsic_file = os.path.join(colmap_path, "images.bin")
+        cameras_intrinsic_file = os.path.join(colmap_path, "cameras.bin")
         cam_extrinsics = read_extrinsics_binary(cameras_extrinsic_file)
         cam_intrinsics = read_intrinsics_binary(cameras_intrinsic_file)
     except:
-        cameras_extrinsic_file = os.path.join(path, "sparse/0", "images.txt")
-        cameras_intrinsic_file = os.path.join(path, "sparse/0", "cameras.txt")
+        cameras_extrinsic_file = os.path.join(colmap_path, "images.txt")
+        cameras_intrinsic_file = os.path.join(colmap_path, "cameras.txt")
         cam_extrinsics = read_extrinsics_text(cameras_extrinsic_file)
         cam_intrinsics = read_intrinsics_text(cameras_intrinsic_file)
 
-    depth_params_file = os.path.join(path, "sparse/0", "depth_params.json")
+    depth_params_file = os.path.join(colmap_path, "depth_params.json")
     ## if depth_params_file isnt there AND depths file is here -> throw error
     depths_params = None
     if depths != "" and not use_npy_depth:
@@ -221,13 +228,13 @@ def readColmapSceneInfo(path, images, masks, depths, eval, train_test_exp, llffh
             sys.exit(1)
 
 
-    ply_path = os.path.join(path, "sparse/0/points3D.ply")
-    bin_path = os.path.join(path, "sparse/0/points3D.bin")
-    txt_path = os.path.join(path, "sparse/0/points3D.txt")
+    ply_path = os.path.join(colmap_path, "points3D.ply")
+    bin_path = os.path.join(colmap_path, "points3D.bin")
+    txt_path = os.path.join(colmap_path, "points3D.txt")
     
     try:
-        xyz_path = os.path.join(path, "sparse/0/xyz.pt")
-        rgb_path = os.path.join(path, "sparse/0/rgb.pt")
+        xyz_path = os.path.join(colmap_path, "xyz.pt")
+        rgb_path = os.path.join(colmap_path, "rgb.pt")
         pcd = fetchPt(xyz_path, rgb_path)
     except:
         if not os.path.exists(ply_path):
@@ -248,17 +255,18 @@ def readColmapSceneInfo(path, images, masks, depths, eval, train_test_exp, llffh
             cam_names = [cam_extrinsics[cam_id].name for cam_id in cam_extrinsics]
             cam_names = sorted(cam_names)
             test_cam_names_list = [name for idx, name in enumerate(cam_names) if idx % llffhold == 0]
-        elif os.path.exists(os.path.join(path, "sparse/0", "test.txt")):
-            with open(os.path.join(path, "sparse/0", "test.txt"), 'r') as file:
+        elif os.path.exists(os.path.join(colmap_path, "test.txt")):
+            with open(os.path.join(colmap_path, "test.txt"), 'r') as file:
                 test_cam_names_list = [line.strip() for line in file]
         elif eval_camera_name != "":
             test_cam_names_list = [cam_extrinsics[cam_id].name for cam_id in cam_extrinsics if cam_extrinsics[cam_id].name.startswith(eval_camera_name)]
 
     reading_dir = "images" if images == None else images
-    masks_reading_dir = masks if masks == "" else os.path.join(path, masks)
+    masks_reading_dir = os.path.join(path, masks1)  if masks1 != "" else ""
+    masks2_reading_dir = os.path.join(path, masks2) if masks2 != "" else ""
     cam_infos_unsorted = readColmapCameras(
         cam_extrinsics=cam_extrinsics, cam_intrinsics=cam_intrinsics, depths_params=depths_params, 
-        images_folder=os.path.join(path, reading_dir), masks_folder=masks_reading_dir,
+        images_folder=os.path.join(path, reading_dir), masks_folder=masks_reading_dir, masks2_folder = masks2_reading_dir,
         depths_folder=os.path.join(path, depths) if depths != "" else "", test_cam_names_list=test_cam_names_list, use_npy_depth=use_npy_depth)
     cam_infos = sorted(cam_infos_unsorted.copy(), key = lambda x : x.image_name)
 

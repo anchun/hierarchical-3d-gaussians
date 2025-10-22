@@ -157,6 +157,7 @@ if __name__ == '__main__':
     
     # Add command-line argument(s)
     parser.add_argument('--project_dir', required=True, help="project directory")
+    parser.add_argument('--resolution', default=0.0333333, type=int)
     args = parser.parse_args()
     images_dir = os.path.join(args.project_dir, "camera_calibration/rectified/images")
     roadmasks_dir = os.path.join(args.project_dir, "camera_calibration/rectified/roadmasks")
@@ -250,8 +251,9 @@ if __name__ == '__main__':
     print("Step3: densify road points...")
     pcd = pcd_clean
     #pcd = o3d.io.read_point_cloud(os.path.join(model_dir, f"roadpoints.ply"), format='ply')
+    print("road resolution:", args.resolution)
     dense_pcd, _ = densify_road_with_alpha(
-        pcd, cameras_world, alpha=2.0, resolution=0.1, interp_method='linear'
+        pcd, cameras_world, alpha=2.0, resolution=args.resolution, interp_method='linear'
     )
     onroad_points_xyz = np.asarray(dense_pcd.points)
     onroad_points_rgb = np.asarray(dense_pcd.colors)

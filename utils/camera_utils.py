@@ -25,13 +25,13 @@ def loadCam(args, id, cam_info, resolution_scale, is_test_dataset, is_novel_view
 
         if cam_info.mask_path != "":
             try:
-                alpha_mask = Image.open(cam_info.mask_path)
-            except FileNotFoundError:
-                print(f"Error: The mask file at path '{cam_info.mask_path}' was not found.")
-                raise
-            except IOError:
-                print(f"Error: Unable to open the image file '{cam_info.mask_path}'. It may be corrupted or an unsupported format.")
-                raise
+                alpha_mask = Image.open(cam_info.mask_path).convert("L")
+                if cam_info.mask2_path != "":
+                    alpha_mask2 = Image.open(cam_info.mask2_path).convert("L")
+                    mask1 = np.array(alpha_mask)
+                    mask2 = np.array(alpha_mask2)
+                    intersection = np.logical_and(mask1 > 128, mask2 > 128).astype(np.uint8) * 255
+                    alpha_mask = Image.fromarray(intersection, mode="L")
             except Exception as e:
                 print(f"An unexpected error occurred: {e}")
                 raise

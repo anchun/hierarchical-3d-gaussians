@@ -62,6 +62,7 @@ class GaussianModel:
         self.optimizer = None
         self.percent_dense = 0
         self.spatial_lr_scale = 0
+        self.gaussian_road_mean_distance = None # for road training
         self.nodes = None
         self.boxes = None
 
@@ -268,20 +269,72 @@ class GaussianModel:
         self._exposure = nn.Parameter(exposure.requires_grad_(True))
         print("Number of points at initialisation : ", self._xyz.shape[0])
 
+    def create_from_roadpoints(
+            self, 
+            pcd : BasicPointCloud, 
+            cam_infos : int,
+            spatial_lr_scale : float):
+        
+        self.spatial_lr_scale = spatial_lr_scale
+
+        fused_point_cloud = torch.tensor(np.asarray(pcd.points), device='cuda', dtype=torch.float)
+        fused_color = RGB2SH(torch.tensor(np.asarray(pcd.colors), device='cuda', dtype=torch.float))
+
+        features = torch.zeros((fused_color.shape[0], 3, (self.max_sh_degree + 1) ** 2), device='cuda', dtype=torch.float)
+        features[..., 0] = fused_color
+
+        print(f"Number of points at initialization: {fused_point_cloud.shape[0]}")
+        dist2 = torch.clamp_min(distCUDA2(fused_point_cloud), 0.0000001)
+        gaussian_road_distance = torch.sqrt(dist2)
+        self.gaussian_road_mean_distance = torch.mean(gaussian_road_distance).item()
+        scales = torch.log(gaussian_road_distance)[..., None].repeat(1, 3)
+        rots = torch.zeros((fused_point_cloud.shape[0], 4), device="cuda")
+        rots[:, 0] = 1
+        opacities = inverse_sigmoid(0.1 * torch.ones((fused_point_cloud.shape[0], 1), dtype=torch.float, device="cuda"))
+
+        self._xyz = nn.Parameter(fused_point_cloud.requires_grad_(True))        
+        self._features_dc = nn.Parameter(features[:, :, 0:1].transpose(1, 2).contiguous().requires_grad_(True))
+        self._features_rest = nn.Parameter(features[:, :, 1:].transpose(1, 2).contiguous().requires_grad_(True))
+        self._scaling = nn.Parameter(scales.requires_grad_(True))
+        self._rotation = nn.Parameter(rots.requires_grad_(True))
+        self._opacity = nn.Parameter(opacities.requires_grad_(True))
+        self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda")
+
+        self.exposure_mapping = {cam_info.image_name: idx for idx, cam_info in enumerate(cam_infos)}
+
+        exposure = torch.eye(3, 4, device="cuda")[None].repeat(len(cam_infos), 1, 1)
+        self._exposure = nn.Parameter(exposure.requires_grad_(True))
+        print("Number of points at initialisation : ", self._xyz.shape[0])
+        
+    def clean_up_road_big_gaussians(self, max_volume_scale : float):
+        with torch.no_grad():
+            mean_scale = self.gaussian_road_mean_distance * self.gaussian_road_mean_distance * self.gaussian_road_mean_distance
+            large_gaussians = self.get_scaling.prod(dim=1) / mean_scale > max_volume_scale
+            num_large = large_gaussians.sum().item()
+            if num_large > 0:
+                print(f"Removing {num_large} large gaussians...")
+                keep = (~large_gaussians).nonzero().flatten()
+                self._xyz = nn.Parameter(self._xyz[keep].requires_grad_(True))
+                self._features_dc = nn.Parameter(self._features_dc[keep].requires_grad_(True))
+                self._features_rest = nn.Parameter(self._features_rest[keep].requires_grad_(True))
+                self._scaling = nn.Parameter(self._scaling[keep].requires_grad_(True))
+                self._rotation = nn.Parameter(self._rotation[keep].requires_grad_(True))
+                self._opacity = nn.Parameter(self._opacity[keep].requires_grad_(True))
+                self.max_radii2D = self.max_radii2D[keep]
+
     def training_setup(self, training_args, our_adam=True):
         self.percent_dense = training_args.percent_dense
         self.xyz_gradient_accum = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
         self.xyz_gradient_accum_abs = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
         self.denom = torch.zeros((self.get_xyz.shape[0], 1), device="cuda")
 
-        l = [
-            {'params': [self._xyz], 'lr': training_args.position_lr_init * self.spatial_lr_scale, "name": "xyz"},
-            {'params': [self._features_dc], 'lr': training_args.feature_lr, "name": "f_dc"},
-            {'params': [self._features_rest], 'lr': training_args.feature_lr / 20.0, "name": "f_rest"},
-            {'params': [self._opacity], 'lr': training_args.opacity_lr, "name": "opacity"},
-            {'params': [self._scaling], 'lr': training_args.scaling_lr, "name": "scaling"},
-            {'params': [self._rotation], 'lr': training_args.rotation_lr, "name": "rotation"},
-        ]
+        l = []
+        l.append({'params': [self._xyz], 'lr': training_args.position_lr_init * self.spatial_lr_scale, "name": "xyz"})
+        l.append({'params': [self._features_dc], 'lr': training_args.feature_lr, "name": "f_dc"})
+        l.append({'params': [self._features_rest], 'lr': training_args.feature_lr / 20.0, "name": "f_rest"})
+        l.append({'params': [self._opacity], 'lr': training_args.opacity_lr, "name": "opacity"})
+        l.append({'params': [self._scaling], 'lr': training_args.scaling_lr, "name": "scaling"})
+        l.append({'params': [self._rotation], 'lr': training_args.rotation_lr, "name": "rotation"})
 
         if our_adam:
             self.optimizer = Adam(l, lr=0.0, eps=1e-15)

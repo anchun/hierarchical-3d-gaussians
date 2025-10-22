@@ -69,6 +69,7 @@ class ModelParams(ParamGroup):
         self.use_npy_depth = False
         self.use_gsplat = True
         self.use_absgrad = True
+        self.road_masks = ""
         super().__init__(parser, "Loading Parameters", sentinel)
 
     def extract(self, args):

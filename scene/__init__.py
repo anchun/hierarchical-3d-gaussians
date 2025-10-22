@@ -13,7 +13,7 @@ import os
 import random
 import json
 from utils.system_utils import searchForMaxIteration
-from scene.dataset_readers import sceneLoadTypeCallbacks
+from scene.dataset_readers import sceneLoadTypeCallbacks, fetchPly
 from scene.gaussian_model import GaussianModel
 from arguments import ModelParams
 from utils.camera_utils import camera_to_JSON, CameraDataset
@@ -26,7 +26,7 @@ class Scene:
     gaussians : GaussianModel
 
     def __init__(self, args : ModelParams, gaussians : GaussianModel, load_iteration=None, shuffle=True, create_from_hier=False,
-                        generate_novel_views = False, novel_pos_z = [], novel_rot_z = []):
+                        generate_novel_views = False, novel_pos_z = [], novel_rot_z = [], roadpoints_file = None):
         """b
         :param path: Path to colmap scene main folder.
         """
@@ -42,7 +42,9 @@ class Scene:
             print("Loading trained model at iteration {}".format(self.loaded_iter))
 
         if os.path.exists(os.path.join(args.source_path, "sparse")):
-            scene_info = sceneLoadTypeCallbacks["Colmap"](args.source_path, args.images, args.alpha_masks, args.depths, args.eval, args.train_test_exp, None, args.use_npy_depth, args.eval_camera_name)
+            scene_info = sceneLoadTypeCallbacks["Colmap"](args.source_path, args.images, args.alpha_masks, args.depths, args.eval, args.train_test_exp, 
+                                                          use_npy_depth = args.use_npy_depth, eval_camera_name = args.eval_camera_name,
+                                                          masks2 = args.road_masks)
         else:
             assert False, "Could not recognize scene type!"
 
@@ -87,6 +89,11 @@ class Scene:
             self.gaussians.create_from_pt(args.pretrained, self.cameras_extent)
         elif create_from_hier:
             self.gaussians.create_from_hier(args.hierarchy, self.cameras_extent, args.scaffold_file)
+        elif roadpoints_file is not None:
+            pcd = fetchPly(roadpoints_file)
+            self.gaussians.create_from_roadpoints(pcd, 
+                                                 scene_info.train_cameras,
+                                                 self.cameras_extent)
         else:
             self.gaussians.create_from_pcd(scene_info.point_cloud, 
                                            scene_info.train_cameras,
@@ -97,17 +104,17 @@ class Scene:
                                            args.skybox_locked)
 
 
-    def save(self, iteration):
+    def save(self, iteration, ply_only=False, filename='point_cloud.ply'):
         point_cloud_path = os.path.join(self.model_path, "point_cloud/iteration_{}".format(iteration))
         mkdir_p(point_cloud_path)
         if self.gaussians.nodes is not None:
             self.gaussians.save_hier()
         else:
+            self.gaussians.save_ply(os.path.join(point_cloud_path, filename))
+        
+        if not ply_only:       
             with open(os.path.join(point_cloud_path, "pc_info.txt"), "w") as f:
                 f.write(str(self.gaussians.skybox_points))
-            #if self.gaussians._xyz.size(0) > 30_000_000:
-            #    self.gaussians.save_pt(point_cloud_path)
-            self.gaussians.save_ply(os.path.join(point_cloud_path, "point_cloud.ply"))
 
             exposure_dict = {
                 image_name: self.gaussians.get_exposure_from_name(image_name).detach().cpu().numpy().tolist()
