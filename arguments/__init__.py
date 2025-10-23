@@ -68,6 +68,7 @@ class ModelParams(ParamGroup):
         self.skybox_locked = False
         self.use_npy_depth = False
         self.use_gsplat = True
+        self.use_gsplat2d = True
         self.use_absgrad = True
         self.road_masks = ""
         super().__init__(parser, "Loading Parameters", sentinel)
@@ -112,6 +113,7 @@ class OptimizationParams(ParamGroup):
         self.min_opacity = 0.005
         self.depth_l1_weight_init = 1.0
         self.depth_l1_weight_final = 0.01
+        self.normal_loss_weight = 0.05
         super().__init__(parser, "Optimization Parameters")
 
 def get_combined_args(parser : ArgumentParser):

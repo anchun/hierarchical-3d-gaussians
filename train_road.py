@@ -3,15 +3,15 @@ import torch
 import random
 from utils.loss_utils import l1_loss, ssim
 from utils.image_utils import psnr
-from gaussian_renderer import render, render_gsplat
+from gaussian_renderer import render, render_gsplat, render_gsplat2d
 import sys
 from scene import Scene, GaussianModel
-from utils.general_utils import safe_state, get_expon_lr_func
+from utils.general_utils import safe_state
 from difix.pipeline_difix import DifixPipeline
-from PIL import Image
 import uuid
 from tqdm import tqdm
 import numpy as np
+import torch.nn.functional as F
 from torch.utils.data import DataLoader
 from argparse import ArgumentParser, Namespace
 from arguments import ModelParams, PipelineParams, OptimizationParams
@@ -59,6 +59,8 @@ def training(dataset, opt, pipe, args):
     ema_loss_for_log = 0.0
     psnr_val_for_log = 0.0
     ssim_val_for_log = 0.0
+    depth_val_for_log = 0.0
+    normal_val_for_log = 0.0
     
     training_generator = DataLoader(scene.getTrainCameras(), num_workers = 8, batch_size = 1, prefetch_factor = 1, persistent_workers = True, collate_fn=direct_collate)
     fix_generator = DataLoader(scene.getNovelViewCameras(), num_workers = 8, batch_size = 1, prefetch_factor = 1, persistent_workers = True, collate_fn=direct_collate)
@@ -94,11 +96,12 @@ def training(dataset, opt, pipe, args):
                 # Render
                 if (iteration - 1) == args.debug_from:
                     pipe.debug = True
-                if dataset.use_gsplat:
-                    render_pkg = render_gsplat(viewpoint_cam, gaussians, background, use_trained_exp=True, absgrad=dataset.use_absgrad)
+                if dataset.use_gsplat2d:
+                    render_pkg = render_gsplat2d(viewpoint_cam, gaussians, background, use_trained_exp=True, absgrad=dataset.use_absgrad)
+                    image, depths, normals, normals_from_depth = render_pkg["render"], render_pkg["depth"], render_pkg["normal"], render_pkg["normals_from_depth"]
                 else:
-                    render_pkg = render(viewpoint_cam, gaussians, pipe, background, indices = None, use_trained_exp=True)
-                image, invDepth = render_pkg["render"], render_pkg["depth"]
+                    render_pkg = render_gsplat(viewpoint_cam, gaussians, background, use_trained_exp=True, absgrad=dataset.use_absgrad)
+                    image, invDepth = render_pkg["render"], render_pkg["depth"]
 
                 # Loss
                 if not viewpoint_cam.is_novel_view:
@@ -124,6 +127,13 @@ def training(dataset, opt, pipe, args):
 
                 photo_loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * Lssim 
                 loss = photo_loss.clone()
+                normal_val = 0.0
+                if dataset.use_gsplat2d:
+                    # add normal loss
+                    normal_error = (1 - (normals * normals_from_depth).sum(dim=0))[None]
+                    normalloss = opt.normal_loss_weight * normal_error.mean()
+                    normal_val = normalloss.item()
+                    loss += normalloss
 
                 loss.backward()
                 iter_end.record()
@@ -133,15 +143,22 @@ def training(dataset, opt, pipe, args):
                     ema_loss_for_log = 0.1 * photo_loss.item() + 0.9 * ema_loss_for_log
                     psnr_val_for_log = 0.1 * psnr_val + 0.9 * psnr_val_for_log
                     ssim_val_for_log = 0.1 * ssim_val + 0.9 * ssim_val_for_log
+                    normal_val_for_log = 0.1 * normal_val + 0.9 * normal_val_for_log
                     if iteration % 10 == 0:
-                        progress_bar.set_postfix({"Loss": f"{ema_loss_for_log:.{7}f}", "PSNR": f"{psnr_val_for_log:.{5}f}", "SSIM": f"{ssim_val_for_log:.{5}f}" , "Size": f"{gaussians._xyz.size(0)}"})
+                        progress_bar.set_postfix({"Loss": f"{ema_loss_for_log:.{7}f}", "PSNR": f"{psnr_val_for_log:.{3}f}", "SSIM": f"{ssim_val_for_log:.{3}f}" , "Normal": f"{normal_val_for_log:.{3}f}" , "Size": f"{gaussians._xyz.size(0)}"})
                         progress_bar.update(10)
 
                     # Log and save
                     if (iteration in args.save_iterations):
                         if iteration == opt.iterations:
                             print("clean up big road points...")
-                            gaussians.clean_up_road_big_gaussians(max_volume_scale = args.max_volume_scale)
+                            if args.use_gsplat2d:
+                                mean_scale = gaussians.gaussian_road_mean_distance ** 2
+                                large_gaussians = gaussians.get_scaling[:, :2].prod(dim=1) / mean_scale > (args.max_valid_scale ** 2)
+                            else:
+                                mean_scale = gaussians.gaussian_road_mean_distance ** 3
+                                large_gaussians = gaussians.get_scaling.prod(dim=1) / mean_scale > (args.max_valid_scale ** 3)
+                            gaussians.clean_up_invalid_gaussians(large_gaussians)
                         print("\n[ITER {}] Saving Gaussians".format(iteration))
                         scene.save(iteration, ply_only=True, filename='road_point_cloud.ply')
                         print("peak memory: ", torch.cuda.max_memory_allocated(device='cuda'))
@@ -162,8 +179,8 @@ def training(dataset, opt, pipe, args):
                             relevant = relevant.flatten().long()
                             gaussians.optimizer.step(relevant)
                             gaussians.optimizer.zero_grad(set_to_none = True)
-                    # clamp scaling to prevent gaussians which is three times of road mean distance
-                    gaussians._scaling.data.clamp_max_(torch.log(torch.tensor(gaussians.gaussian_road_mean_distance * 3)).cuda())
+                    # clamp scaling to prevent gaussians which is too big
+                    gaussians._scaling.data.clamp_max_(torch.log(torch.tensor(gaussians.gaussian_road_mean_distance * 4)).cuda())
 
                     iteration += 1
 
@@ -190,7 +207,7 @@ if __name__ == "__main__":
     parser.add_argument('--project_dir', required=True, help="project directory")
     parser.add_argument('--debug_from', type=int, default=-1)
     parser.add_argument("--save_iterations", nargs="+", type=int, default=[30_000])
-    parser.add_argument('--max_volume_scale', type=float, default=10.0)
+    parser.add_argument('--max_valid_scale', type=float, default=3.162)
     parser.add_argument('--generate_novel_views', action='store_true', default=False)
     parser.add_argument("--novel_pos_z", nargs="+", type=int, default=[1])
     parser.add_argument("--novel_rot_z", nargs="+", type=int, default=[0])

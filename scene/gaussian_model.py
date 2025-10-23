@@ -288,6 +288,8 @@ class GaussianModel:
         gaussian_road_distance = torch.sqrt(dist2)
         self.gaussian_road_mean_distance = torch.mean(gaussian_road_distance).item()
         scales = torch.log(gaussian_road_distance)[..., None].repeat(1, 3)
+        # make the road gaussians thinner in z direction
+        scales[:,2] = torch.log(torch.tensor(0.01, device='cuda'))
         rots = torch.zeros((fused_point_cloud.shape[0], 4), device="cuda")
         rots[:, 0] = 1
         opacities = inverse_sigmoid(0.1 * torch.ones((fused_point_cloud.shape[0], 1), dtype=torch.float, device="cuda"))
@@ -306,14 +308,12 @@ class GaussianModel:
         self._exposure = nn.Parameter(exposure.requires_grad_(True))
         print("Number of points at initialisation : ", self._xyz.shape[0])
         
-    def clean_up_road_big_gaussians(self, max_volume_scale : float):
+    def clean_up_invalid_gaussians(self, invalid_gaussians : torch.Tensor):
         with torch.no_grad():
-            mean_scale = self.gaussian_road_mean_distance * self.gaussian_road_mean_distance * self.gaussian_road_mean_distance
-            large_gaussians = self.get_scaling.prod(dim=1) / mean_scale > max_volume_scale
-            num_large = large_gaussians.sum().item()
-            if num_large > 0:
-                print(f"Removing {num_large} large gaussians...")
-                keep = (~large_gaussians).nonzero().flatten()
+            num_invalid = invalid_gaussians.sum().item()
+            if num_invalid > 0:
+                print(f"Removing {num_invalid} gaussians...")
+                keep = (~invalid_gaussians).nonzero().flatten()
                 self._xyz = nn.Parameter(self._xyz[keep].requires_grad_(True))
                 self._features_dc = nn.Parameter(self._features_dc[keep].requires_grad_(True))
                 self._features_rest = nn.Parameter(self._features_rest[keep].requires_grad_(True))
