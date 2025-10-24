@@ -46,7 +46,7 @@ def mix_dataloader_sampler(loader1, loader2, p1_schedule, total_iterations):
         yield batch
         local_iteration += 1
 
-def rendering_mesh(gaussians, training_cameras, gaussian_render, args):
+def rendering_mesh(gaussians, training_cameras, gaussian_render, road_mean_distance, args):
     gaussExtractor = GaussianExtractor(gaussians, gaussian_render)    
 
     print("export mesh ...")
@@ -55,7 +55,9 @@ def rendering_mesh(gaussians, training_cameras, gaussian_render, args):
     gaussExtractor.reconstruction(training_cameras)
     # extract the mesh and save
     name = 'road_mesh.ply'
-    mesh = gaussExtractor.extract_mesh_bounded(voxel_size=0.02, sdf_trunc=0.1, depth_trunc=20.0, mask_backgrond=True)
+    voxel_size = road_mean_distance * 2 / 3
+    sdf_trunc = voxel_size * 10.0
+    mesh = gaussExtractor.extract_mesh_bounded(voxel_size, sdf_trunc, depth_trunc=20.0, mask_backgrond=True)
     
     #o3d.io.write_triangle_mesh(os.path.join(mesh_output_dir, name), mesh)
     #print("mesh saved at {}".format(os.path.join(mesh_output_dir, name.replace('.ply', '_raw.ply'))))
@@ -208,9 +210,12 @@ def training(dataset, opt, pipe, args):
                             gaussians.clean_up_invalid_gaussians(large_gaussians)
                             
                             print("rendering mesh ...")
-                            rendering_mesh(gaussians, training_generator, gaussian_render, args)
-                        print("\n[ITER {}] Saving Gaussians".format(iteration))
-                        scene.save(iteration, ply_only=True)
+                            rendering_mesh(gaussians, training_generator, gaussian_render, road_mean_distance, args)
+                        if iteration > args.load_iteration:
+                            print("\n[ITER {}] Saving Gaussians".format(iteration))
+                            scene.save(iteration, ply_only=True)
+                        else:
+                            print("\n[ITER {}] Skip Saving Gaussians due to loaded from same iteration".format(iteration))
                         print("peak memory: ", torch.cuda.max_memory_allocated(device='cuda'))
 
                     if iteration % opt.opacity_reset_interval == 0:
