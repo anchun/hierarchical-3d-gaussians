@@ -13,7 +13,7 @@ import os
 import random
 import json
 from utils.system_utils import searchForMaxIteration
-from scene.dataset_readers import sceneLoadTypeCallbacks, fetchPly
+from scene.dataset_readers import readColmapSceneInfo, fetchPly
 from scene.gaussian_model import GaussianModel
 from arguments import ModelParams
 from utils.camera_utils import camera_to_JSON, CameraDataset
@@ -25,7 +25,7 @@ class Scene:
 
     gaussians : GaussianModel
 
-    def __init__(self, args : ModelParams, gaussians : GaussianModel, load_iteration=None, shuffle=True, create_from_hier=False,
+    def __init__(self, args : ModelParams, gaussians : GaussianModel, load_iteration=None, load_filename="point_cloud.ply", shuffle=True, create_from_hier=False,
                         generate_novel_views = False, novel_pos_z = [], novel_rot_z = [], roadpoints_file = None):
         """b
         :param path: Path to colmap scene main folder.
@@ -35,14 +35,14 @@ class Scene:
         self.gaussians = gaussians
 
         if load_iteration:
-            if load_iteration == -1:
+            if load_iteration <= 0:
                 self.loaded_iter = searchForMaxIteration(os.path.join(self.model_path, "point_cloud"))
             else:
                 self.loaded_iter = load_iteration
             print("Loading trained model at iteration {}".format(self.loaded_iter))
 
         if os.path.exists(os.path.join(args.source_path, "sparse")):
-            scene_info = sceneLoadTypeCallbacks["Colmap"](args.source_path, args.images, args.alpha_masks, args.depths, args.eval, args.train_test_exp, 
+            scene_info = readColmapSceneInfo(args.source_path, args.images, args.alpha_masks, args.depths, args.eval, args.train_test_exp, 
                                                           use_npy_depth = args.use_npy_depth, eval_camera_name = args.eval_camera_name,
                                                           masks2 = args.road_masks)
         else:
@@ -72,19 +72,19 @@ class Scene:
         self.cameras_extent = scene_info.nerf_normalization["radius"]
 
         print("Making Training Dataset")
-        self.train_cameras = CameraDataset(scene_info.train_cameras, args, 1, False)
+        self.train_cameras = CameraDataset(scene_info.train_cameras, scene_info.point_cloud, args, 1, False)
 
         print("Making Test Dataset")
-        self.test_cameras = CameraDataset(scene_info.test_cameras, args, 1, True)
+        self.test_cameras = CameraDataset(scene_info.test_cameras, scene_info.point_cloud, args, 1, True)
         
         print("Making Novel Dataset")
-        self.novel_view_cameras = CameraDataset(novel_cam_infos, args, 1, False, is_novel_view=True)
+        self.novel_view_cameras = CameraDataset(novel_cam_infos, scene_info.point_cloud, args, 1, False, is_novel_view=True)
 
         if self.loaded_iter:
             self.gaussians.load_ply(os.path.join(self.model_path,
                                                            "point_cloud",
                                                            "iteration_" + str(self.loaded_iter),
-                                                           "point_cloud.ply"))
+                                                           load_filename), scene_info.train_cameras)
         elif args.pretrained:
             self.gaussians.create_from_pt(args.pretrained, self.cameras_extent)
         elif create_from_hier:

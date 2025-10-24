@@ -14,12 +14,13 @@ from scene.cameras import Camera
 import numpy as np
 from utils.graphics_utils import fov2focal
 from PIL import Image
+import pyquaternion
 import os, sys
 import cv2
 
 WARNED = False
 
-def loadCam(args, id, cam_info, resolution_scale, is_test_dataset, is_novel_view = False):
+def loadCam(args, id, cam_info, resolution_scale, sfm_points, is_test_dataset = False, is_novel_view = False):
     if not is_novel_view:
         image = Image.open(cam_info.image_path)
 
@@ -67,6 +68,25 @@ def loadCam(args, id, cam_info, resolution_scale, is_test_dataset, is_novel_view
                 raise
         else:
             invdepthmap_npy = None
+            
+        if invdepthmap is None and invdepthmap_npy is None and sfm_points.shape[0] > 0:
+            # calculate a rough invdepthmap from sfm points projection
+            K = np.array([[fov2focal(cam_info.FovX, cam_info.width), 0, cam_info.primx * cam_info.width], [0, fov2focal(cam_info.FovY, cam_info.height), cam_info.primy * cam_info.height], [0, 0, 1]])
+            points_cam = cam_info.R.T @ sfm_points.T + cam_info.T.reshape(3, 1)
+            points_proj = (K @ points_cam).T
+            points = points_proj[:, :2] / points_proj[:, 2:3]  # (M, 2)
+            depths = points_cam[2:3, :].T  # (M,1)
+            selector = (
+                (points[:, 0] >= 0)
+                & (points[:, 0] < cam_info.width)
+                & (points[:, 1] >= 0)
+                & (points[:, 1] < cam_info.height)
+                & (depths[:, 0] > 0)
+                & (depths[:, 0] < 50)
+            )
+            points = points[selector]
+            depths = 1.0 / depths[selector]
+            invdepthmap_npy = np.concatenate((points, depths), axis=1).astype(np.float32)
 
         orig_w, orig_h = image.size
 
@@ -102,13 +122,6 @@ def loadCam(args, id, cam_info, resolution_scale, is_test_dataset, is_novel_view
                   image_name=cam_info.image_name, uid=id, data_device=args.data_device, 
                   train_test_exp=args.train_test_exp, is_test_dataset=is_test_dataset, is_test_view=cam_info.is_test, is_novel_view = is_novel_view)
 
-def cameraList_from_camInfos(cam_infos, resolution_scale, args):
-    camera_list = []
-
-    for id, c in enumerate(cam_infos):
-        camera_list.append(loadCam(args, id, c, resolution_scale))
-
-    return camera_list
 
 def camera_to_JSON(id, camera : Camera):
     Rt = np.zeros((4, 4))
@@ -136,10 +149,11 @@ import torch
 
 class CameraDataset(torch.utils.data.Dataset):
   'Characterizes a dataset for PyTorch'
-  def __init__(self, list_cam_infos, args, resolution_scales, is_test, is_novel_view = False):
+  def __init__(self, list_cam_infos, sfm_point_cloud, args, resolution_scales, is_test, is_novel_view = False):
         'Initialization'
         self.resolution_scales = resolution_scales
         self.list_cam_infos = list_cam_infos
+        self.sfm_point_cloud = sfm_point_cloud
         self.args = args
         self.args.data_device = 'cpu'
         self.is_test = is_test
@@ -154,7 +168,7 @@ class CameraDataset(torch.utils.data.Dataset):
 
         # Select sample
         info = self.list_cam_infos[index]
-        X = loadCam(self.args, index, info, self.resolution_scales, self.is_test, self.is_novel_view)
+        X = loadCam(self.args, index, info, self.resolution_scales, sfm_points =self.sfm_point_cloud.points, is_test_dataset = self.is_test, is_novel_view = self.is_novel_view)
 
         return X
   

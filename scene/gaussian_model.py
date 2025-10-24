@@ -575,7 +575,7 @@ class GaussianModel:
         optimizable_tensors = self.replace_tensor_to_optimizer(opacities_new, "opacity")
         self._opacity = optimizable_tensors["opacity"]
 
-    def load_ply(self, path):
+    def load_ply(self, path, cam_infos):
         xyz, features_dc, features_extra, opacities, scales, rots = self.load_ply_file(path, self.max_sh_degree)
 
         self._xyz = nn.Parameter(torch.tensor(xyz, dtype=torch.float, device="cuda").requires_grad_(True))
@@ -586,6 +586,16 @@ class GaussianModel:
         self._rotation = nn.Parameter(torch.tensor(rots, dtype=torch.float, device="cuda").requires_grad_(True))
 
         self.active_sh_degree = self.max_sh_degree
+        
+        dist2 = torch.clamp_min(distCUDA2(self._xyz.data), 0.0000001)
+        gaussian_road_distance = torch.sqrt(dist2)
+        self.gaussian_road_mean_distance = torch.mean(gaussian_road_distance).item()
+        
+        self.exposure_mapping = {cam_info.image_name: idx for idx, cam_info in enumerate(cam_infos)}
+        exposure = torch.eye(3, 4, device="cuda")[None].repeat(len(cam_infos), 1, 1)
+        self._exposure = nn.Parameter(exposure.requires_grad_(True))
+        
+        print("Number of points at initialisation : ", self._xyz.shape[0])
 
     def replace_tensor_to_optimizer(self, tensor, name):
         optimizable_tensors = {}

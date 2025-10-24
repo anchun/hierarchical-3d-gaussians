@@ -23,8 +23,7 @@ import torch.nn.functional as F
 class Camera(nn.Module):
     def __init__(self, resolution, colmap_id, R, T, FoVx, FoVy, depth_params, primx, primy, image, alpha_mask,
                  invdepthmap, invdepthmap_npy,
-                 image_name, uid,
-                 trans=np.array([0.0, 0.0, 0.0]), scale=1.0, data_device = "cuda",
+                 image_name, uid, data_device = "cuda",
                  train_test_exp=False, is_test_dataset=False, is_test_view=False, is_novel_view = False
                  ):
         super(Camera, self).__init__()
@@ -35,6 +34,8 @@ class Camera(nn.Module):
         self.T = T
         self.FoVx = FoVx
         self.FoVy = FoVy
+        self.primx = primx
+        self.primy = primy
         self.image_name = image_name
         self.is_novel_view = is_novel_view
 
@@ -101,13 +102,39 @@ class Camera(nn.Module):
         self.zfar = 1000.0
         self.znear = 0.01
 
-        self.trans = trans
-        self.scale = scale
-
-        self.world_view_transform = torch.tensor(getWorld2View2(R, T, trans, scale)).transpose(0, 1).to(self.data_device)
+        self.world_view_transform = torch.tensor(getWorld2View2(R, T)).transpose(0, 1).to(self.data_device)
         self.projection_matrix = getProjectionMatrix(znear=self.znear, zfar=self.zfar, fovX=self.FoVx, fovY=self.FoVy, primx = primx, primy=primy).transpose(0,1).to(self.data_device)
         self.full_proj_transform = (self.world_view_transform.unsqueeze(0).bmm(self.projection_matrix.unsqueeze(0))).squeeze(0).to(self.data_device)
         self.camera_center = self.world_view_transform.inverse()[3, :3].to(self.data_device)
+    def shallow_clone(self):
+        # clone without copying image/depth data
+        new_cam = Camera(
+            resolution=(self.image_width, self.image_height),
+            colmap_id=self.colmap_id,
+            R=self.R,
+            T=self.T,
+            FoVx=self.FoVx,
+            FoVy=self.FoVy,
+            depth_params={},
+            primx=self.primx,
+            primy=self.primy,
+            image=None,
+            alpha_mask=None,
+            invdepthmap=None,
+            invdepthmap_npy=None,
+            image_name=self.image_name,
+            uid=self.uid,
+            data_device=self.data_device.type,
+            train_test_exp=False,
+            is_test_dataset=False,
+            is_test_view=False,
+            is_novel_view=self.is_novel_view
+        )
+        new_cam.world_view_transform = new_cam.world_view_transform.to(self.world_view_transform.device)
+        new_cam.projection_matrix = new_cam.projection_matrix.to(self.world_view_transform.device)
+        new_cam.full_proj_transform = new_cam.full_proj_transform.to(self.world_view_transform.device)
+        new_cam.camera_center = new_cam.camera_center.to(self.world_view_transform.device)
+        return new_cam
 
 class MiniCam:
     def __init__(self, width, height, fovy, fovx, znear, zfar, world_view_transform, full_proj_transform):
