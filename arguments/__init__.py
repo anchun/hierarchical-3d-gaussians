@@ -71,6 +71,7 @@ class ModelParams(ParamGroup):
         self.use_gsplat2d = True
         self.use_absgrad = True
         self.road_masks = ""
+        self.depth_from_pointcloud = False
         super().__init__(parser, "Loading Parameters", sentinel)
 
     def extract(self, args):
@@ -113,8 +114,8 @@ class OptimizationParams(ParamGroup):
         self.min_opacity = 0.005
         self.depth_l1_weight_init = 1.0
         self.depth_l1_weight_final = 0.01
-        self.depth_loss_weight = 0.05
-        self.normal_loss_weight = 0.05
+        self.depth_loss_weight = 0.1
+        self.normal_loss_weight = 0.1
         super().__init__(parser, "Optimization Parameters")
 
 def get_combined_args(parser : ArgumentParser):

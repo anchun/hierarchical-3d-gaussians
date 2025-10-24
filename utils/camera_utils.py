@@ -168,7 +168,8 @@ class CameraDataset(torch.utils.data.Dataset):
 
         # Select sample
         info = self.list_cam_infos[index]
-        X = loadCam(self.args, index, info, self.resolution_scales, sfm_points =self.sfm_point_cloud.points, is_test_dataset = self.is_test, is_novel_view = self.is_novel_view)
+        sfm_points = self.sfm_point_cloud.points if self.args.depth_from_pointcloud else np.array([])
+        X = loadCam(self.args, index, info, self.resolution_scales, sfm_points = sfm_points, is_test_dataset = self.is_test, is_novel_view = self.is_novel_view)
 
         return X
   

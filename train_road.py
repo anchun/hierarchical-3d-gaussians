@@ -50,27 +50,25 @@ def rendering_mesh(gaussians, training_cameras, gaussian_render, args):
     gaussExtractor = GaussianExtractor(gaussians, gaussian_render)    
 
     print("export mesh ...")
-    mesh_output_dir = os.path.join(args.model_path, 'mesh')
-    os.makedirs(mesh_output_dir, exist_ok=True)
     # set the active_sh to 0 to export only diffuse texture
     gaussExtractor.gaussians.active_sh_degree = 0
     gaussExtractor.reconstruction(training_cameras)
     # extract the mesh and save
     name = 'road_mesh.ply'
-    mesh = gaussExtractor.extract_mesh_bounded(voxel_size=0.025, sdf_trunc=0.5, depth_trunc=20.0)
+    mesh = gaussExtractor.extract_mesh_bounded(voxel_size=0.02, sdf_trunc=0.1, depth_trunc=20.0, mask_backgrond=True)
     
     #o3d.io.write_triangle_mesh(os.path.join(mesh_output_dir, name), mesh)
     #print("mesh saved at {}".format(os.path.join(mesh_output_dir, name.replace('.ply', '_raw.ply'))))
     
     # post-process the mesh and save, saving the largest N clusters
     mesh_post = post_process_mesh(mesh, cluster_to_keep=50)
-    o3d.io.write_triangle_mesh(os.path.join(mesh_output_dir, name), mesh_post)
-    print("mesh post processed saved at {}".format(os.path.join(mesh_output_dir, name)))
+    o3d.io.write_triangle_mesh(os.path.join(args.model_path, name), mesh_post)
+    print("mesh post processed saved at {}".format(os.path.join(args.model_path, name)))
     
 def training(dataset, opt, pipe, args):
     prepare_output_and_logger(dataset)
     gaussians = GaussianModel(dataset.sh_degree)
-    scene = Scene(dataset, gaussians, load_iteration = args.load_iteration, load_filename="road_point_cloud.ply", generate_novel_views = args.generate_novel_views, novel_pos_z = args.novel_pos_z, novel_rot_z = args.novel_rot_z, roadpoints_file = args.roadpoints_file)
+    scene = Scene(dataset, gaussians, load_iteration = args.load_iteration, generate_novel_views = args.generate_novel_views, novel_pos_z = args.novel_pos_z, novel_rot_z = args.novel_rot_z, roadpoints_file = args.roadpoints_file)
     gaussians.training_setup(opt)
 
     bg_color = [1, 1, 1] if dataset.white_background else [0, 0, 0]
@@ -108,7 +106,7 @@ def training(dataset, opt, pipe, args):
                 viewpoint_cam.projection_matrix = viewpoint_cam.projection_matrix.cuda()
                 viewpoint_cam.full_proj_transform = viewpoint_cam.full_proj_transform.cuda()
                 viewpoint_cam.camera_center = viewpoint_cam.camera_center.cuda()
-                viewpoint_cam.invdepthmap_npy = viewpoint_cam.invdepthmap_npy.cuda()
+                viewpoint_cam.invdepthmap_npy = viewpoint_cam.invdepthmap_npy.cuda() if viewpoint_cam.invdepthmap_npy is not None else None
 
                 iter_start.record()
 
@@ -150,24 +148,28 @@ def training(dataset, opt, pipe, args):
 
                 photo_loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * Lssim 
                 loss = photo_loss.clone()
-                depth_gt = viewpoint_cam.invdepthmap_npy[:, 2]
-                points = torch.stack(
-                    [
-                        viewpoint_cam.invdepthmap_npy[:, 0] / (viewpoint_cam.image_width - 1) * 2 - 1,
-                        viewpoint_cam.invdepthmap_npy[:, 1] / (viewpoint_cam.image_height - 1) * 2 - 1,
-                    ],
-                    dim=-1,
-                )  # normalize to [-1, 1] [M, 2]
-                grid = points.unsqueeze(0).unsqueeze(2)  # [1, M, 1, 2]
-                depths *= alpha_mask
-                depths = F.grid_sample(
-                    depths.unsqueeze(0), grid, align_corners=True
-                )  # [1, 1, M, 1]
-                depths = depths.squeeze()
-                invDepths = 1.0 / depths[depths > 0.0]
-                depth_gt = depth_gt[depths > 0.0]
-                depthloss = F.l1_loss(invDepths, depth_gt) * opt.depth_loss_weight
-                loss += depthloss
+                
+                if dataset.depth_from_pointcloud and viewpoint_cam.invdepthmap_npy is not None:
+                    depth_gt = viewpoint_cam.invdepthmap_npy[:, 2]
+                    points = torch.stack(
+                        [
+                            viewpoint_cam.invdepthmap_npy[:, 0] / (viewpoint_cam.image_width - 1) * 2 - 1,
+                            viewpoint_cam.invdepthmap_npy[:, 1] / (viewpoint_cam.image_height - 1) * 2 - 1,
+                        ],
+                        dim=-1,
+                    )  # normalize to [-1, 1] [M, 2]
+                    grid = points.unsqueeze(0).unsqueeze(2)  # [1, M, 1, 2]
+                    depths *= alpha_mask
+                    depths = F.grid_sample(
+                        depths.unsqueeze(0), grid, align_corners=True
+                    )  # [1, 1, M, 1]
+                    depths = depths.squeeze()
+                    invDepths = 1.0 / depths[depths > 0.0]
+                    depth_gt = depth_gt[depths > 0.0]
+                    depthloss = F.l1_loss(invDepths, depth_gt) * opt.depth_loss_weight
+                    loss += depthloss
+                else:
+                    depthloss = torch.tensor(0.0)
                 
                 normal_val = 0.0
                 if dataset.use_gsplat2d:
@@ -208,7 +210,7 @@ def training(dataset, opt, pipe, args):
                             print("rendering mesh ...")
                             rendering_mesh(gaussians, training_generator, gaussian_render, args)
                         print("\n[ITER {}] Saving Gaussians".format(iteration))
-                        scene.save(iteration, ply_only=True, filename='road_point_cloud.ply')
+                        scene.save(iteration, ply_only=True)
                         print("peak memory: ", torch.cuda.max_memory_allocated(device='cuda'))
 
                     if iteration % opt.opacity_reset_interval == 0:
@@ -267,8 +269,8 @@ if __name__ == "__main__":
     args.images = os.path.join(args.source_path, "images")
     args.alpha_masks = os.path.join(args.source_path, "masks")
     args.road_masks = os.path.join(args.source_path, "roadmasks")
-    args.model_path = os.path.join(args.project_dir, "output/scaffold")
-    args.scaffold_file = os.path.join(args.project_dir, "output/scaffold/point_cloud/iteration_30000")
+    args.model_path = os.path.join(args.project_dir, "output/road_model")
+    os.makedirs(args.model_path, exist_ok=True)
     args.sh_degree = 1
     args.roadpoints_file = os.path.join(args.source_path, "sparse/roadpoints_dense.ply")
     args.save_iterations.append(args.iterations)

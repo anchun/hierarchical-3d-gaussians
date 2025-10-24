@@ -118,7 +118,6 @@ class GaussianExtractor(object):
                 if viewpoint_cam.uid % 10 == 0:
                     reconstruction_progress_bar.update(10)
         reconstruction_progress_bar.close()
-        self.estimate_bounding_sphere()
 
     def estimate_bounding_sphere(self):
         """

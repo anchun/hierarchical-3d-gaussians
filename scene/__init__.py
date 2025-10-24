@@ -25,20 +25,17 @@ class Scene:
 
     gaussians : GaussianModel
 
-    def __init__(self, args : ModelParams, gaussians : GaussianModel, load_iteration=None, load_filename="point_cloud.ply", shuffle=True, create_from_hier=False,
+    def __init__(self, args : ModelParams, gaussians : GaussianModel, load_iteration=-1, load_filename="point_cloud.ply", shuffle=True, create_from_hier=False,
                         generate_novel_views = False, novel_pos_z = [], novel_rot_z = [], roadpoints_file = None):
         """b
         :param path: Path to colmap scene main folder.
         """
         self.model_path = args.model_path
-        self.loaded_iter = None
+        self.loaded_iter = 0
         self.gaussians = gaussians
 
-        if load_iteration:
-            if load_iteration <= 0:
-                self.loaded_iter = searchForMaxIteration(os.path.join(self.model_path, "point_cloud"))
-            else:
-                self.loaded_iter = load_iteration
+        if load_iteration > 0:
+            self.loaded_iter = load_iteration
             print("Loading trained model at iteration {}".format(self.loaded_iter))
 
         if os.path.exists(os.path.join(args.source_path, "sparse")):
@@ -48,7 +45,7 @@ class Scene:
         else:
             assert False, "Could not recognize scene type!"
 
-        if not self.loaded_iter:
+        if self.loaded_iter <= 0:
             with open(scene_info.ply_path, 'rb') as src_file, open(os.path.join(self.model_path, "input.ply") , 'wb') as dest_file:
                 dest_file.write(src_file.read())
             json_cams = []
@@ -80,7 +77,7 @@ class Scene:
         print("Making Novel Dataset")
         self.novel_view_cameras = CameraDataset(novel_cam_infos, scene_info.point_cloud, args, 1, False, is_novel_view=True)
 
-        if self.loaded_iter:
+        if self.loaded_iter > 0:
             self.gaussians.load_ply(os.path.join(self.model_path,
                                                            "point_cloud",
                                                            "iteration_" + str(self.loaded_iter),
