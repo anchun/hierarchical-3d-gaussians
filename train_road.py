@@ -168,7 +168,9 @@ def training(dataset, opt, pipe, args):
                     depths = depths.squeeze()
                     invDepths = 1.0 / depths[depths > 0.0]
                     depth_gt = depth_gt[depths > 0.0]
-                    depthloss = F.l1_loss(invDepths, depth_gt) * opt.depth_loss_weight
+                    depth_error = torch.abs(invDepths - depth_gt)
+                    depth_error, _ = torch.topk(depth_error, int(0.99 * depth_error.size(0)), largest=False)
+                    depthloss = depth_error.mean() * opt.depth_loss_weight
                     loss += depthloss
                 else:
                     depthloss = torch.tensor(0.0)
