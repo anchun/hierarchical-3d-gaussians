@@ -151,7 +151,7 @@ def training(dataset, opt, pipe, args):
                 photo_loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * Lssim 
                 loss = photo_loss.clone()
                 
-                if dataset.depth_from_pointcloud and viewpoint_cam.invdepthmap_npy is not None:
+                if dataset.use_npy_depth and viewpoint_cam.invdepthmap_npy is not None:
                     depth_gt = viewpoint_cam.invdepthmap_npy[:, 2]
                     points = torch.stack(
                         [
@@ -209,8 +209,9 @@ def training(dataset, opt, pipe, args):
                                 large_gaussians = gaussians.get_scaling.prod(dim=1) / mean_scale > (args.max_valid_scale ** 3)
                             gaussians.clean_up_invalid_gaussians(large_gaussians)
                             
-                            print("rendering mesh ...")
-                            rendering_mesh(gaussians, training_generator, gaussian_render, road_mean_distance, args)
+                            if args.generate_meshes:
+                                print("rendering mesh ...")
+                                rendering_mesh(gaussians, training_generator, gaussian_render, road_mean_distance, args)
                         if iteration > args.load_iteration:
                             print("\n[ITER {}] Saving Gaussians".format(iteration))
                             scene.save(iteration, ply_only=True)
@@ -265,6 +266,7 @@ if __name__ == "__main__":
     parser.add_argument('--load_iteration', type=int, default=-1)
     parser.add_argument("--save_iterations", nargs="+", type=int, default=[30_000])
     parser.add_argument('--max_valid_scale', type=float, default=3.162)
+    parser.add_argument('--generate_meshes', action='store_true', default=True)
     parser.add_argument('--generate_novel_views', action='store_true', default=False)
     parser.add_argument("--novel_pos_z", nargs="+", type=int, default=[1])
     parser.add_argument("--novel_rot_z", nargs="+", type=int, default=[0])
@@ -272,6 +274,8 @@ if __name__ == "__main__":
     args = parser.parse_args(sys.argv[1:])
     args.source_path = os.path.join(args.project_dir, "camera_calibration/rectified")
     args.images = os.path.join(args.source_path, "images")
+    args.depths = os.path.join(args.source_path, "depths")
+    args.use_npy_depth = True
     args.alpha_masks = os.path.join(args.source_path, "masks")
     args.road_masks = os.path.join(args.source_path, "roadmasks")
     args.model_path = os.path.join(args.project_dir, "output/road_model")

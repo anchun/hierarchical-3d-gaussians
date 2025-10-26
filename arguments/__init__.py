@@ -71,7 +71,6 @@ class ModelParams(ParamGroup):
         self.use_gsplat2d = True
         self.use_absgrad = True
         self.road_masks = ""
-        self.depth_from_pointcloud = False
         super().__init__(parser, "Loading Parameters", sentinel)
 
     def extract(self, args):

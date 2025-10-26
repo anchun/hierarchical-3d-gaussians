@@ -20,7 +20,7 @@ import cv2
 
 WARNED = False
 
-def loadCam(args, id, cam_info, resolution_scale, sfm_points, is_test_dataset = False, is_novel_view = False):
+def loadCam(args, id, cam_info, resolution_scale, is_test_dataset = False, is_novel_view = False):
     if not is_novel_view:
         image = Image.open(cam_info.image_path)
 
@@ -68,25 +68,6 @@ def loadCam(args, id, cam_info, resolution_scale, sfm_points, is_test_dataset = 
                 raise
         else:
             invdepthmap_npy = None
-            
-        if invdepthmap is None and invdepthmap_npy is None and sfm_points.shape[0] > 0:
-            # calculate a rough invdepthmap from sfm points projection
-            K = np.array([[fov2focal(cam_info.FovX, cam_info.width), 0, cam_info.primx * cam_info.width], [0, fov2focal(cam_info.FovY, cam_info.height), cam_info.primy * cam_info.height], [0, 0, 1]])
-            points_cam = cam_info.R.T @ sfm_points.T + cam_info.T.reshape(3, 1)
-            points_proj = (K @ points_cam).T
-            points = points_proj[:, :2] / points_proj[:, 2:3]  # (M, 2)
-            depths = points_cam[2:3, :].T  # (M,1)
-            selector = (
-                (points[:, 0] >= 0)
-                & (points[:, 0] < cam_info.width)
-                & (points[:, 1] >= 0)
-                & (points[:, 1] < cam_info.height)
-                & (depths[:, 0] > 0)
-                & (depths[:, 0] < 50)
-            )
-            points = points[selector]
-            depths = 1.0 / depths[selector]
-            invdepthmap_npy = np.concatenate((points, depths), axis=1).astype(np.float32)
 
         orig_w, orig_h = image.size
 
@@ -168,8 +149,7 @@ class CameraDataset(torch.utils.data.Dataset):
 
         # Select sample
         info = self.list_cam_infos[index]
-        sfm_points = self.sfm_point_cloud.points if self.args.depth_from_pointcloud else np.array([])
-        X = loadCam(self.args, index, info, self.resolution_scales, sfm_points = sfm_points, is_test_dataset = self.is_test, is_novel_view = self.is_novel_view)
+        X = loadCam(self.args, index, info, self.resolution_scales, is_test_dataset = self.is_test, is_novel_view = self.is_novel_view)
 
         return X
   

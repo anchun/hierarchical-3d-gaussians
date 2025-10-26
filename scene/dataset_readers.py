@@ -75,7 +75,7 @@ def getNerfppNorm(cam_info):
 
     return {"translate": translate, "radius": radius}
 
-def readColmapCameras(cam_extrinsics, cam_intrinsics, depths_params, images_folder, masks_folder, masks2_folder, depths_folder, test_cam_names_list, use_npy_depth=False):
+def readColmapCameras(cam_extrinsics, cam_intrinsics, depths_params, images_folder, masks_folder, masks2_folder, depths_folder, test_cam_names_list, sfm_points, use_npy_depth=False):
     cam_infos = []
     for idx, key in enumerate(cam_extrinsics):
         sys.stdout.write('\r')
@@ -130,9 +130,28 @@ def readColmapCameras(cam_extrinsics, cam_intrinsics, depths_params, images_fold
         mask_path = os.path.join(masks_folder, f"{extr.name[:-n_remove]}.png") if masks_folder != "" else ""
         mask2_path = os.path.join(masks2_folder, f"{extr.name[:-n_remove]}.png") if masks2_folder != "" else ""
         depth_path = os.path.join(depths_folder, f"{extr.name[:-n_remove]}.png") if depths_folder != "" else ""
-        if use_npy_depth:
+        if use_npy_depth and depths_folder != "":
             depth_path = ""
-            depth_npy_path = os.path.join(depths_folder, f"{extr.name[:-n_remove]}.npy") if depths_folder != "" else ""
+            depth_npy_path = os.path.join(depths_folder, f"{extr.name[:-n_remove]}.npy")
+            if not os.path.exists(depth_npy_path):
+                # calculate a rough invdepthmap from sfm points projection
+                K = np.array([[focal_length_x, 0, primx * width], [0, focal_length_y, primy * height], [0, 0, 1]])
+                points_cam = R.T @ sfm_points.T + T.reshape(3, 1)
+                points_proj = (K @ points_cam).T
+                points = points_proj[:, :2] / points_proj[:, 2:3]  # (M, 2)
+                depths = points_cam[2:3, :].T  # (M,1)
+                selector = (
+                    (points[:, 0] >= 0)
+                    & (points[:, 0] < width)
+                    & (points[:, 1] >= 0)
+                    & (points[:, 1] < height)
+                    & (depths[:, 0] > 0)
+                    & (depths[:, 0] < 50)
+                )
+                points = points[selector]
+                depths = 1.0 / depths[selector]
+                invdepthmap_npy = np.concatenate((points, depths), axis=1).astype(np.float32)
+                np.save(depth_npy_path, invdepthmap_npy)
         else:
             depth_npy_path = None
 
@@ -267,7 +286,7 @@ def readColmapSceneInfo(path, images, masks1, depths, eval, train_test_exp, llff
     cam_infos_unsorted = readColmapCameras(
         cam_extrinsics=cam_extrinsics, cam_intrinsics=cam_intrinsics, depths_params=depths_params, 
         images_folder=os.path.join(path, reading_dir), masks_folder=masks_reading_dir, masks2_folder = masks2_reading_dir,
-        depths_folder=os.path.join(path, depths) if depths != "" else "", test_cam_names_list=test_cam_names_list, use_npy_depth=use_npy_depth)
+        depths_folder=os.path.join(path, depths) if depths != "" else "", test_cam_names_list=test_cam_names_list, sfm_points = pcd.points, use_npy_depth=use_npy_depth)
     cam_infos = sorted(cam_infos_unsorted.copy(), key = lambda x : x.image_name)
 
     train_cam_infos = [c for c in cam_infos if train_test_exp or not c.is_test]
