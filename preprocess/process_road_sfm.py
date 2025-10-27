@@ -162,6 +162,7 @@ if __name__ == '__main__':
     images_dir = os.path.join(args.project_dir, "camera_calibration/rectified/images")
     roadmasks_dir = os.path.join(args.project_dir, "camera_calibration/rectified/roadmasks")
     model_dir = os.path.join(args.project_dir, "camera_calibration/rectified/sparse")
+    aligned_model_dir = os.path.join(args.project_dir, "camera_calibration/aligned/sparse/0")
 
     # Read colmap cameras, images and points
     start_time = time.time()
@@ -201,6 +202,7 @@ if __name__ == '__main__':
     print("Step1: Extracting road points from SfM points...")
     onroad_points_xyz = []
     onroad_points_rgb = []
+    offroad_point3ds = {}
     for pid, pdata in tqdm.tqdm(points3d_in.items()):
         onroad_count = 0
         offroad_count = 0
@@ -225,9 +227,16 @@ if __name__ == '__main__':
         if onroad_count > 1:
             onroad_points_xyz.append(pdata.xyz)
             onroad_points_rgb.append(pdata.rgb / 255.0)
+        else:
+            offroad_point3ds[pid] = pdata
     print(f"Total {len(onroad_points_xyz)} road points extracted from {len(points3d_in)} points.")
     onroad_points_xyz = np.array(onroad_points_xyz)
     onroad_points_rgb = np.array(onroad_points_rgb)
+    print(f"Total {len(offroad_point3ds)} off-road points written to points3D_offroad.bin")
+    # write to both model_dir and aligned_model_dir
+    write_points3D_binary(offroad_point3ds, os.path.join(model_dir, "points3D_offroad.bin"))
+    print("Writing off-road points to aligned model dir to override points3D.bin")
+    write_points3D_binary(offroad_point3ds, os.path.join(aligned_model_dir, "points3D.bin"))
     
     print("Step2: Cleaning road points...")
     pcd = o3d.geometry.PointCloud()

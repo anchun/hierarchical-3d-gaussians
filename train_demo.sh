@@ -8,6 +8,8 @@ for DATASET_DIR in "${scenes[@]}"; do
     # python preprocess/undistort_waymo.py --project_dir ${DATASET_DIR}
     # python preprocess/undistort_wayve.py --project_dir ${DATASET_DIR}
     python preprocess/generate_pose_prior.py --project_dir ${DATASET_DIR}
+    #python preprocess/process_road_segmentation.py --project_dir ${DATASET_DIR}
+    #python preprocess/process_road_sfm.py --project_dir ${DATASET_DIR}
     python preprocess/generate_chunks.py --project_dir ${DATASET_DIR} --skip_bundle_adjustment
     python preprocess/generate_depth.py --project_dir ${DATASET_DIR}
     python scripts/full_train.py --project_dir ${DATASET_DIR} --chunks_iterations 30000 --skip_if_exists

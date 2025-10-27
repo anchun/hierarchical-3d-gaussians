@@ -277,6 +277,11 @@ if __name__ == "__main__":
     print("Iterations: ", args.iterations, "Densify iterations: ", args.densify_until_iter, "degree SH: ", args.sh_degree)
     
     print("Optimizing " + args.model_path)
+    # training with road model if exists
+    roadpoints_3dgs_file = os.path.join(args.model_path, "../../road_model/point_cloud/iteration_30000/point_cloud.ply")
+    if os.path.exists(roadpoints_3dgs_file):
+        args.roadpoints_3dgs_file = roadpoints_3dgs_file
+        print("training with road model: ", args.roadpoints_3dgs_file)
 
     if args.eval and args.exposure_lr_init > 0 and not args.train_test_exp: 
         print("Reconstructing for evaluation (--eval) with exposure optimization on the train set but not for the test set.")

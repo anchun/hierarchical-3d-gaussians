@@ -80,7 +80,7 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
                     render_pkg = render_gsplat(viewpoint_cam, gaussians, background, use_trained_exp=False, absgrad=dataset.use_absgrad, with_depth=False)
                 else:
                     render_pkg = render_coarse(viewpoint_cam, gaussians, pipe, background, indices = indices)
-                image, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
+                image, visibility_filter, radii = render_pkg["render"], render_pkg["visibility_filter"], render_pkg["radii"]
 
                 # Loss
                 gt_image = viewpoint_cam.original_image.cuda().float()
@@ -117,7 +117,16 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
                     # Optimizer step
 
                     if iteration < opt.iterations:
-                        gaussians._scaling.grad[:gaussians.skybox_points,:] = 0
+                        if gaussians.road_points > 0: # fix road points
+                            gaussians._xyz.grad[:gaussians.road_points, :] = 0
+                            gaussians._rotation.grad[:gaussians.road_points, :] = 0
+                            gaussians._features_dc.grad[:gaussians.road_points, :, :] = 0
+                            gaussians._features_rest.grad[:gaussians.road_points, :, :] = 0
+                            gaussians._opacity.grad[:gaussians.road_points, :] = 0
+                            gaussians._scaling.grad[:gaussians.road_points, :] = 0
+                            
+                        fixedpoints = gaussians.road_points + gaussians.skybox_points
+                        gaussians._scaling.grad[:fixedpoints,:] = 0
                         relevant = (gaussians._opacity.grad != 0).nonzero()
                         gaussians.optimizer.step(relevant)
                         gaussians.optimizer.zero_grad(set_to_none = True)
@@ -129,7 +138,8 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
                     with torch.no_grad():
                         vals, _ = gaussians.get_scaling.max(dim=1)
                         violators = vals > scene.cameras_extent * 0.1
-                        violators[:gaussians.skybox_points] = False
+                        fixedpoints = gaussians.road_points + gaussians.skybox_points
+                        violators[:fixedpoints] = False
                         gaussians._scaling[violators] = gaussians.scaling_inverse_activation(gaussians.get_scaling[violators] * 0.8)
 
 
@@ -168,6 +178,11 @@ if __name__ == "__main__":
     args.save_iterations.append(args.iterations)
     
     print("Optimizing " + args.model_path)
+    # training with road model if exists
+    roadpoints_3dgs_file = os.path.join(args.model_path, "../road_model/point_cloud/iteration_30000/point_cloud.ply")
+    if os.path.exists(roadpoints_3dgs_file):
+        args.roadpoints_3dgs_file = roadpoints_3dgs_file
+        print("training with road model: ", args.roadpoints_3dgs_file)
 
     # Initialize system state (RNG)
     safe_state(args.quiet)

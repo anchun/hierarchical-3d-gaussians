@@ -64,6 +64,8 @@ class ModelParams(ParamGroup):
         self.pretrained = ""
         self.skybox_num = 0
         self.scaffold_file = ""
+        self.roadpoints_input_file = ""
+        self.roadpoints_3dgs_file = ""
         self.bounds_file = ""
         self.skybox_locked = False
         self.use_npy_depth = False
@@ -71,6 +73,7 @@ class ModelParams(ParamGroup):
         self.use_gsplat2d = True
         self.use_absgrad = True
         self.road_masks = ""
+        self.road_masks_fusion_mode = 0 # 0 for onroad, 1 for offroad
         super().__init__(parser, "Loading Parameters", sentinel)
 
     def extract(self, args):

@@ -70,7 +70,7 @@ def rendering_mesh(gaussians, training_cameras, gaussian_render, road_mean_dista
 def training(dataset, opt, pipe, args):
     prepare_output_and_logger(dataset)
     gaussians = GaussianModel(dataset.sh_degree)
-    scene = Scene(dataset, gaussians, load_iteration = args.load_iteration, generate_novel_views = args.generate_novel_views, novel_pos_z = args.novel_pos_z, novel_rot_z = args.novel_rot_z, roadpoints_file = args.roadpoints_file)
+    scene = Scene(dataset, gaussians, load_iteration = args.load_iteration, generate_novel_views = args.generate_novel_views, novel_pos_z = args.novel_pos_z, novel_rot_z = args.novel_rot_z)
     gaussians.training_setup(opt)
 
     bg_color = [1, 1, 1] if dataset.white_background else [0, 0, 0]
@@ -280,10 +280,11 @@ if __name__ == "__main__":
     args.use_npy_depth = True
     args.alpha_masks = os.path.join(args.source_path, "masks")
     args.road_masks = os.path.join(args.source_path, "roadmasks")
+    args.road_masks_fusion_mode = 0
     args.model_path = os.path.join(args.project_dir, "output/road_model")
     os.makedirs(args.model_path, exist_ok=True)
     args.sh_degree = 1
-    args.roadpoints_file = os.path.join(args.source_path, "sparse/roadpoints_dense.ply")
+    args.roadpoints_input_file = os.path.join(args.source_path, "sparse/roadpoints_dense.ply")
     args.save_iterations.append(args.iterations)
     print("Train Roads Iterations: ", args.iterations, "degree SH: ", args.sh_degree)
     print("Optimizing " + args.model_path)

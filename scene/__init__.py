@@ -12,9 +12,9 @@
 import os
 import random
 import json
-from utils.system_utils import searchForMaxIteration
 from scene.dataset_readers import readColmapSceneInfo, fetchPly
-from scene.gaussian_model import GaussianModel
+from scene.colmap_loader import read_points3D_binary
+from scene.gaussian_model import GaussianModel, BasicPointCloud
 from arguments import ModelParams
 from utils.camera_utils import camera_to_JSON, CameraDataset
 from utils.system_utils import mkdir_p
@@ -26,7 +26,7 @@ class Scene:
     gaussians : GaussianModel
 
     def __init__(self, args : ModelParams, gaussians : GaussianModel, load_iteration=-1, load_filename="point_cloud.ply", shuffle=True, create_from_hier=False,
-                        generate_novel_views = False, novel_pos_z = [], novel_rot_z = [], roadpoints_file = None):
+                        generate_novel_views = False, novel_pos_z = [], novel_rot_z = []):
         """b
         :param path: Path to colmap scene main folder.
         """
@@ -86,19 +86,24 @@ class Scene:
             self.gaussians.create_from_pt(args.pretrained, self.cameras_extent)
         elif create_from_hier:
             self.gaussians.create_from_hier(args.hierarchy, self.cameras_extent, args.scaffold_file)
-        elif roadpoints_file is not None:
-            pcd = fetchPly(roadpoints_file)
+        elif len(args.roadpoints_input_file) > 0:
+            pcd = fetchPly(args.roadpoints_input_file)
             self.gaussians.create_from_roadpoints(pcd, 
                                                  scene_info.train_cameras,
                                                  self.cameras_extent)
-        else:
+        elif len(args.scaffold_file) > 0:
             self.gaussians.create_from_pcd(scene_info.point_cloud, 
                                            scene_info.train_cameras,
                                            self.cameras_extent, 
-                                           args.skybox_num,
                                            args.scaffold_file,
                                            args.bounds_file,
                                            args.skybox_locked)
+        else:
+            self.gaussians.create_for_training_scaffold(scene_info.point_cloud, 
+                                           scene_info.train_cameras,
+                                           self.cameras_extent, 
+                                           args.skybox_num,
+                                           args.roadpoints_3dgs_file)
 
 
     def save(self, iteration, ply_only=False, filename='point_cloud.ply'):
@@ -111,7 +116,7 @@ class Scene:
         
         if not ply_only:       
             with open(os.path.join(point_cloud_path, "pc_info.txt"), "w") as f:
-                f.write(str(self.gaussians.skybox_points))
+                f.write(str(self.gaussians.road_points + self.gaussians.skybox_points))
 
             exposure_dict = {
                 image_name: self.gaussians.get_exposure_from_name(image_name).detach().cpu().numpy().tolist()

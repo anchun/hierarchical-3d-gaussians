@@ -70,6 +70,8 @@ class GaussianModel:
 
         self.skybox_points = 0
         self.skybox_locked = True
+        self.scaffold_points = None
+        self.road_points = 0        
 
         self.setup_functions()
 
@@ -153,7 +155,6 @@ class GaussianModel:
             pcd : BasicPointCloud, 
             cam_infos : int,
             spatial_lr_scale : float,
-            skybox_points: int,
             scaffold_file: str,
             bounds_file: str,
             skybox_locked: bool):
@@ -168,49 +169,23 @@ class GaussianModel:
         mean = 0.5 * (minimum + maximum)
 
         self.skybox_locked = skybox_locked
-        if scaffold_file != "" and skybox_points > 0:
-            print(f"Overriding skybox_points: loading skybox from scaffold_file: {scaffold_file}")
-            skybox_points = 0
-        if skybox_points > 0:
-            self.skybox_points = skybox_points
-            radius = torch.linalg.norm(maximum - mean)
-
-            theta = (2.0 * torch.pi * torch.rand(skybox_points, device="cuda")).float()
-            phi = (torch.arccos(1.0 - 1.4 * torch.rand(skybox_points, device="cuda"))).float()
-            skybox_xyz = torch.zeros((skybox_points, 3))
-            skybox_xyz[:, 0] = radius * 10 * torch.cos(theta)*torch.sin(phi)
-            skybox_xyz[:, 1] = radius * 10 * torch.sin(theta)*torch.sin(phi)
-            skybox_xyz[:, 2] = radius * 10 * torch.cos(phi)
-            skybox_xyz += mean.cpu()
-            xyz = torch.concat((skybox_xyz.cuda(), xyz))
-            fused_color = torch.concat((torch.ones((skybox_points, 3)).cuda(), fused_color))
-            fused_color[:skybox_points,0] *= 0.7
-            fused_color[:skybox_points,1] *= 0.8
-            fused_color[:skybox_points,2] *= 0.95
 
         features = torch.zeros((fused_color.shape[0], 3, (self.max_sh_degree + 1) ** 2)).float().cuda()
         features[:, :3, 0 ] = RGB2SH(fused_color)
         features[:, 3:, 1:] = 0.0
 
         dist2 = torch.clamp_min(distCUDA2(xyz), 0.0000001)
-        if scaffold_file == "" and skybox_points > 0:
-            dist2[:skybox_points] *= 10
-            dist2[skybox_points:] = torch.clamp_max(dist2[skybox_points:], 10) 
         scales = torch.log(torch.sqrt(dist2))[...,None].repeat(1, 3)
         rots = torch.zeros((xyz.shape[0], 4), device="cuda")
         rots[:, 0] = 1
 
-        if scaffold_file == "" and skybox_points > 0:
-            opacities = self.inverse_opacity_activation(0.02 * torch.ones((xyz.shape[0], 1), dtype=torch.float, device="cuda"))
-            opacities[:skybox_points] = 0.7
-        else: 
-            opacities = self.inverse_opacity_activation(0.01 * torch.ones((xyz.shape[0], 1), dtype=torch.float, device="cuda"))
+        opacities = self.inverse_opacity_activation(0.01 * torch.ones((xyz.shape[0], 1), dtype=torch.float, device="cuda"))
 
         features_dc = features[:,:,0:1].transpose(1, 2).contiguous()
         features_rest = features[:,:,1:].transpose(1, 2).contiguous()
 
-        self.scaffold_points = None
         if scaffold_file != "": 
+            # for train_single with scaffold
             scaffold_xyz, features_dc_scaffold, features_extra_scaffold, opacities_scaffold, scales_scaffold, rots_scaffold = self.load_ply_file(scaffold_file + "/point_cloud.ply", 1)
             scaffold_xyz = torch.from_numpy(scaffold_xyz).float()
             features_dc_scaffold = torch.from_numpy(features_dc_scaffold).permute(0, 2, 1).float()
@@ -220,9 +195,8 @@ class GaussianModel:
             rots_scaffold = torch.from_numpy(rots_scaffold).float()
 
             with open(scaffold_file + "/pc_info.txt") as f:
-                skybox_points = int(f.readline())
+                self.skybox_points = int(f.readline())
 
-            self.skybox_points = skybox_points
             with open(os.path.join(bounds_file, "center.txt")) as centerfile:
                 with open(os.path.join(bounds_file, "extent.txt")) as extentfile:
                     centerline = centerfile.readline()
@@ -237,7 +211,7 @@ class GaussianModel:
             selec = torch.logical_and(
                 torch.max(distances1[:,0], distances1[:,1]) > 0.5 * extent[0],
                 torch.max(distances1[:,0], distances1[:,1]) < 1.5 * extent[0])
-            selec[:skybox_points] = True
+            selec[:self.skybox_points] = True
 
             self.scaffold_points = selec.nonzero().size(0)
 
@@ -254,7 +228,101 @@ class GaussianModel:
             scales = torch.concat((scales_scaffold.cuda()[selec], scales))
             rots = torch.concat((rots_scaffold.cuda()[selec], rots))
             opacities = torch.concat((opacities_scaffold.cuda()[selec], opacities))
+        else:
+            self.scaffold_points = None
+            self.skybox_points = 0
 
+        self._xyz = nn.Parameter(xyz.requires_grad_(True))
+        self._features_dc = nn.Parameter(features_dc.requires_grad_(True))
+        self._features_rest = nn.Parameter(features_rest.requires_grad_(True))
+        self._scaling = nn.Parameter(scales.requires_grad_(True))
+        self._rotation = nn.Parameter(rots.requires_grad_(True))
+        self._opacity = nn.Parameter(opacities.requires_grad_(True))
+        self.max_radii2D = torch.zeros((self.get_xyz.shape[0]), device="cuda")
+
+        self.exposure_mapping = {cam_info.image_name: idx for idx, cam_info in enumerate(cam_infos)}
+
+        exposure = torch.eye(3, 4, device="cuda")[None].repeat(len(cam_infos), 1, 1)
+        self._exposure = nn.Parameter(exposure.requires_grad_(True))
+        print("Number of points at initialisation : ", self._xyz.shape[0])
+        
+    def create_for_training_scaffold(
+            self, 
+            pcd : BasicPointCloud, 
+            cam_infos : int,
+            spatial_lr_scale : float,
+            skybox_points: int,
+            roadpoints_3dgs_file: str):
+        
+        self.spatial_lr_scale = spatial_lr_scale
+        assert(skybox_points > 0)
+        
+        xyz = torch.tensor(np.asarray(pcd.points)).float().cuda()
+        fused_color = torch.tensor(np.asarray(pcd.colors)).float().cuda()
+        
+        minimum,_ = torch.min(xyz, axis=0)
+        maximum,_ = torch.max(xyz, axis=0)
+        mean = 0.5 * (minimum + maximum)
+
+        self.skybox_locked = False
+        self.skybox_points = skybox_points
+        self.scaffold_points = None
+        
+        radius = torch.linalg.norm(maximum - mean)
+        theta = (2.0 * torch.pi * torch.rand(skybox_points, device="cuda")).float()
+        phi = (torch.arccos(1.0 - 1.4 * torch.rand(skybox_points, device="cuda"))).float()
+        skybox_xyz = torch.zeros((skybox_points, 3))
+        skybox_xyz[:, 0] = radius * 10 * torch.cos(theta)*torch.sin(phi)
+        skybox_xyz[:, 1] = radius * 10 * torch.sin(theta)*torch.sin(phi)
+        skybox_xyz[:, 2] = radius * 10 * torch.cos(phi)
+        skybox_xyz += mean.cpu()
+        xyz = torch.concat((skybox_xyz.cuda(), xyz))
+        fused_color = torch.concat((torch.ones((skybox_points, 3)).cuda(), fused_color))
+        fused_color[:skybox_points,0] *= 0.7
+        fused_color[:skybox_points,1] *= 0.8
+        fused_color[:skybox_points,2] *= 0.95
+
+        features = torch.zeros((fused_color.shape[0], 3, (self.max_sh_degree + 1) ** 2)).float().cuda()
+        features[:, :3, 0 ] = RGB2SH(fused_color)
+        features[:, 3:, 1:] = 0.0
+
+        dist2 = torch.clamp_min(distCUDA2(xyz), 0.0000001)
+        dist2[:skybox_points] *= 10
+        dist2[skybox_points:] = torch.clamp_max(dist2[skybox_points:], 10)  
+        scales = torch.log(torch.sqrt(dist2))[...,None].repeat(1, 3)
+        rots = torch.zeros((xyz.shape[0], 4), device="cuda")
+        rots[:, 0] = 1
+
+        opacities = self.inverse_opacity_activation(0.02 * torch.ones((xyz.shape[0], 1), dtype=torch.float, device="cuda"))
+        opacities[:skybox_points] = 0.7
+
+        features_dc = features[:,:,0:1].transpose(1, 2).contiguous()
+        features_rest = features[:,:,1:].transpose(1, 2).contiguous()
+        
+        if roadpoints_3dgs_file != "": 
+            roadpoints_xyz, features_dc_roadpoints, features_extra_roadpoints, opacities_roadpoints, scales_roadpoints, rots_roadpoints = self.load_ply_file(roadpoints_3dgs_file, 1)
+            self.road_points = roadpoints_xyz.shape[0]
+            roadpoints_xyz = torch.from_numpy(roadpoints_xyz).float()
+            features_dc_roadpoints = torch.from_numpy(features_dc_roadpoints).permute(0, 2, 1).float()
+            features_extra_roadpoints = torch.from_numpy(features_extra_roadpoints).permute(0, 2, 1).float()
+            opacities_roadpoints = torch.from_numpy(opacities_roadpoints).float()
+            scales_roadpoints = torch.from_numpy(scales_roadpoints).float()
+            rots_roadpoints = torch.from_numpy(rots_roadpoints).float()
+            
+            xyz = torch.concat((roadpoints_xyz.cuda(), xyz))
+            features_dc = torch.concat((features_dc_roadpoints.cuda(), features_dc))
+
+            rest_dim = 3 if self.max_sh_degree == 1 else 15
+            if self.max_sh_degree > 0:
+                filler = torch.zeros((features_extra_roadpoints.cuda().size(0), rest_dim, 3))
+                filler[:,0:3,:] = features_extra_roadpoints.cuda()
+            else:
+                filler = torch.zeros((features_extra_roadpoints.cuda().size(0), 0, 3))
+            features_rest = torch.concat((filler.cuda(), features_rest))
+            scales = torch.concat((scales_roadpoints.cuda(), scales))
+            rots = torch.concat((rots_roadpoints.cuda(), rots))
+            opacities = torch.concat((opacities_roadpoints.cuda(), opacities))
+        
         self._xyz = nn.Parameter(xyz.requires_grad_(True))
         self._features_dc = nn.Parameter(features_dc.requires_grad_(True))
         self._features_rest = nn.Parameter(features_rest.requires_grad_(True))

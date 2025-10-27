@@ -29,9 +29,10 @@ def loadCam(args, id, cam_info, resolution_scale, is_test_dataset = False, is_no
                 alpha_mask = Image.open(cam_info.mask_path).convert("L")
                 if cam_info.mask2_path != "":
                     alpha_mask2 = Image.open(cam_info.mask2_path).convert("L")
-                    mask1 = np.array(alpha_mask)
+                    mask1 = np.array(alpha_mask) > 128
                     mask2 = np.array(alpha_mask2)
-                    intersection = np.logical_and(mask1 > 128, mask2 > 128).astype(np.uint8) * 255
+                    mask2 = mask2 > 128 if args.road_masks_fusion_mode == 0 else mask2 <= 128
+                    intersection = np.logical_and(mask1, mask2).astype(np.uint8) * 255
                     alpha_mask = Image.fromarray(intersection, mode="L")
             except Exception as e:
                 print(f"An unexpected error occurred: {e}")
