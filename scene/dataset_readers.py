@@ -131,7 +131,6 @@ def readColmapCameras(cam_extrinsics, cam_intrinsics, depths_params, images_fold
         mask2_path = os.path.join(masks2_folder, f"{extr.name[:-n_remove]}.png") if masks2_folder != "" else ""
         depth_path = os.path.join(depths_folder, f"{extr.name[:-n_remove]}.png") if depths_folder != "" else ""
         if use_npy_depth and depths_folder != "":
-            depth_path = ""
             depth_npy_path = os.path.join(depths_folder, f"{extr.name[:-n_remove]}.npy")
             if not os.path.exists(depth_npy_path):
                 # calculate a rough invdepthmap from sfm points projection
@@ -227,7 +226,7 @@ def readColmapSceneInfo(path, images, masks1, depths, eval, train_test_exp, llff
     depth_params_file = os.path.join(colmap_path, "depth_params.json")
     ## if depth_params_file isnt there AND depths file is here -> throw error
     depths_params = None
-    if depths != "" and not use_npy_depth:
+    if depths != "" and os.path.exists(depth_params_file):
         try:
             with open(depth_params_file, "r") as f:
                 depths_params = json.load(f)

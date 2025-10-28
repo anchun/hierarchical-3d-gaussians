@@ -14,12 +14,12 @@ import torch
 import random
 from utils.loss_utils import l1_loss, ssim
 from utils.image_utils import psnr
-from gaussian_renderer import render, render_gsplat, network_gui
+from gaussian_renderer import render, render_gsplat
 import sys
 from scene import Scene, GaussianModel
 from utils.general_utils import safe_state, get_expon_lr_func
 from difix.pipeline_difix import DifixPipeline
-from PIL import Image
+import torch.nn.functional as F
 import uuid
 from tqdm import tqdm
 import numpy as np
@@ -70,9 +70,6 @@ def training(dataset, opt, pipe, args):
 
     iter_start = torch.cuda.Event(enable_timing = True)
     iter_end = torch.cuda.Event(enable_timing = True)
-    if dataset.use_npy_depth:
-        opt.depth_l1_weight_init = opt.depth_loss_weight
-        opt.depth_l1_weight_final = opt.depth_loss_weight
     depth_l1_weight = get_expon_lr_func(opt.depth_l1_weight_init, opt.depth_l1_weight_final, max_steps=opt.iterations)
 
     ema_loss_for_log = 0.0
@@ -114,11 +111,8 @@ def training(dataset, opt, pipe, args):
                 # Render
                 if (iteration - 1) == args.debug_from:
                     pipe.debug = True
-                if dataset.use_gsplat:
-                    render_pkg = render_gsplat(viewpoint_cam, gaussians, background, use_trained_exp=True, absgrad=dataset.use_absgrad)
-                else:
-                    render_pkg = render(viewpoint_cam, gaussians, pipe, background, indices = None, use_trained_exp=True)
-                image, invDepth, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["depth"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
+                render_pkg = render_gsplat(viewpoint_cam, gaussians, background, use_trained_exp=True, absgrad=dataset.use_absgrad, with_inv_depth=False)
+                image, depths, viewspace_point_tensor, visibility_filter, radii = render_pkg["render"], render_pkg["depth"], render_pkg["viewspace_points"], render_pkg["visibility_filter"], render_pkg["radii"]
 
                 # Loss
                 if not viewpoint_cam.is_novel_view:
@@ -144,25 +138,40 @@ def training(dataset, opt, pipe, args):
 
                 photo_loss = (1.0 - opt.lambda_dssim) * Ll1 + opt.lambda_dssim * Lssim 
                 loss = photo_loss.clone()
-                Ll1depth_pure = 0.0
+                Ll1depth = 0.0
                 if depth_l1_weight(iteration) > 0 and viewpoint_cam.depth_reliable:
-                    if dataset.use_npy_depth:
-                        mono_invdepth = viewpoint_cam.invdepthmap_npy.cuda()
-                        depth_mask = viewpoint_cam.depth_mask_npy.cuda()
-                        depth_error = torch.abs(invDepth[0][depth_mask] - mono_invdepth[depth_mask])
-                        depth_error, _ = torch.topk(depth_error, int(0.9 * depth_error.size(0)), largest=False)
-                    else:
+                    depth_mask = viewpoint_cam.depth_mask.cuda() if viewpoint_cam.depth_mask is not None else None
+                    if dataset.use_npy_depth and viewpoint_cam.invdepthmap_npy is not None:
+                        invdepthmap_npy = viewpoint_cam.invdepthmap_npy.cuda()
+                        depth_gt = invdepthmap_npy[:, 2]
+                        points = torch.stack(
+                            [
+                                invdepthmap_npy[:, 0] / (viewpoint_cam.image_width - 1) * 2 - 1,
+                                invdepthmap_npy[:, 1] / (viewpoint_cam.image_height - 1) * 2 - 1,
+                            ],
+                            dim=-1,
+                        )  # normalize to [-1, 1] [M, 2]
+                        grid = points.unsqueeze(0).unsqueeze(2)  # [1, M, 1, 2]
+                        if depth_mask is not None:
+                            depths = depths * depth_mask
+                        depths = F.grid_sample(
+                            depths.unsqueeze(0), grid, align_corners=True
+                        )  # [1, 1, M, 1]
+                        depths = depths.squeeze()
+                        invDepths = 1.0 / depths[depths > 0.0]
+                        depth_gt = depth_gt[depths > 0.0]
+                        depth_error = torch.abs(invDepths - depth_gt)
+                        depth_error, _ = torch.topk(depth_error, int(0.95 * depth_error.size(0)), largest=False)
+                        L1_depth_loss_npy = opt.depth_loss_weight * depth_error.mean()
+                        loss += L1_depth_loss_npy
+                        Ll1depth += L1_depth_loss_npy.item()
+                    elif viewpoint_cam.invdepthmap is not None:
+                        invDepths = 1.0 / depths.clamp(min=1e-10)
                         mono_invdepth = viewpoint_cam.invdepthmap.cuda()
-                        depth_mask = viewpoint_cam.depth_mask.cuda()
-                        depth_error = torch.abs((invDepth  - mono_invdepth) * depth_mask)
-
-                    Ll1depth_pure = depth_error.mean()
-                    Ll1depth = depth_l1_weight(iteration) * Ll1depth_pure 
-                    loss += Ll1depth
-                    Ll1depth = Ll1depth.item()
-                else:
-                    Ll1depth = 0
-
+                        depth_error = torch.abs((invDepths  - mono_invdepth) * depth_mask)
+                        L1_depth_loss = depth_l1_weight(iteration) * depth_error.mean() 
+                        loss += L1_depth_loss
+                        Ll1depth += L1_depth_loss.item()
 
                 loss.backward()
                 iter_end.record()
@@ -193,7 +202,7 @@ def training(dataset, opt, pipe, args):
                     if iteration < opt.densify_until_iter:
                         # Keep track of max radii in image-space for pruning
                         gaussians.max_radii2D[visibility_filter] = torch.max(gaussians.max_radii2D[visibility_filter], radii)
-                        gaussians.add_densification_stats(viewspace_point_tensor, visibility_filter, image.shape[2], image.shape[1], dataset.use_gsplat, dataset.use_absgrad)
+                        gaussians.add_densification_stats(viewspace_point_tensor, visibility_filter, image.shape[2], image.shape[1], use_absgrad = dataset.use_absgrad)
 
                         if iteration > opt.densify_from_iter and iteration % opt.densification_interval == 0:
                             prune_big_points = iteration > opt.opacity_reset_interval
@@ -209,11 +218,9 @@ def training(dataset, opt, pipe, args):
                         gaussians.exposure_optimizer.zero_grad(set_to_none = True)
 
                         if gaussians._xyz.grad != None and gaussians.skybox_locked:
+                            # fix xyz, rotation and scaling for sky and road(only optimize color and opacity)
                             gaussians._xyz.grad[:gaussians.skybox_points, :] = 0
                             gaussians._rotation.grad[:gaussians.skybox_points, :] = 0
-                            gaussians._features_dc.grad[:gaussians.skybox_points, :, :] = 0
-                            gaussians._features_rest.grad[:gaussians.skybox_points, :, :] = 0
-                            gaussians._opacity.grad[:gaussians.skybox_points, :] = 0
                             gaussians._scaling.grad[:gaussians.skybox_points, :] = 0
 
                         if gaussians._opacity.grad != None:

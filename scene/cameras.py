@@ -96,11 +96,11 @@ class Camera(nn.Module):
 
         if invdepthmap_npy is not None:
             self.invdepthmap_npy = torch.from_numpy(invdepthmap_npy).to(self.data_device)
-            self.depth_mask_npy = self.invdepthmap_npy > 0
+            if self.depth_mask is None and self.alpha_mask is not None:
+                self.depth_mask = self.alpha_mask.clone()
             self.depth_reliable = True
         else:
             self.invdepthmap_npy = None
-            self.depth_mask_npy = None
 
         self.zfar = 1000.0
         self.znear = 0.01

@@ -161,7 +161,7 @@ def training(dataset, opt, pipe, args):
                         dim=-1,
                     )  # normalize to [-1, 1] [M, 2]
                     grid = points.unsqueeze(0).unsqueeze(2)  # [1, M, 1, 2]
-                    depths *= alpha_mask
+                    depths = depths * alpha_mask
                     depths = F.grid_sample(
                         depths.unsqueeze(0), grid, align_corners=True
                     )  # [1, 1, M, 1]

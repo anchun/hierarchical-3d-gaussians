@@ -183,10 +183,9 @@ def render_gsplat(
     )
     if with_depth:
         rendered_color = render_colors[..., :-1]
+        rendered_depth = render_colors[..., -1:] * render_alphas
         if with_inv_depth:
-            rendered_depth = 1.0 / render_colors[..., -1:].clamp(min=1e-10) * render_alphas
-        else:
-            rendered_depth = render_colors[..., -1:] * render_alphas
+            rendered_depth = 1.0 / rendered_depth.clamp(min=1e-10)
         rendered_image = rendered_color[0].permute(2, 0, 1)
     else:
         rendered_image = render_colors[0].permute(2, 0, 1)
@@ -260,10 +259,9 @@ def render_gsplat2d(
         absgrad=absgrad, # abs gradients
     )
     rendered_color = render_colors[..., :-1]
+    rendered_depth = render_colors[..., -1:] * render_alphas
     if with_inv_depth:
-        rendered_depth = 1.0 / render_colors[..., -1:].clamp(min=1e-10) * render_alphas
-    else:
-        rendered_depth = render_colors[..., -1:] * render_alphas
+        rendered_depth = 1.0 / rendered_depth.clamp(min=1e-10)
     rendered_image = rendered_color[0].permute(2, 0, 1)
     normals_from_depth = normals_from_depth * render_alphas[0]
     radii = info["radii"].squeeze(0) # [N,]

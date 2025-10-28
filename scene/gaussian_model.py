@@ -834,7 +834,7 @@ class GaussianModel:
 
         torch.cuda.empty_cache()
 
-    def add_densification_stats(self, viewspace_point_tensor, update_filter, width = None, height = None, use_gsplat=False, use_absgrad=False):
+    def add_densification_stats(self, viewspace_point_tensor, update_filter, width = None, height = None, use_gsplat=True, use_absgrad=False):
         if use_gsplat:
             grad = viewspace_point_tensor.grad.squeeze(0) # [N, 2]
             # Normalize the gradient to [-1, 1] screen size
