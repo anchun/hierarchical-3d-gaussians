@@ -12,7 +12,7 @@
 import os
 import torch
 from utils.loss_utils import l1_loss, ssim
-from gaussian_renderer import render_coarse, render_gsplat
+from gaussian_renderer import render_gsplat
 import sys
 from scene import Scene, GaussianModel
 from utils.general_utils import safe_state
@@ -76,10 +76,7 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
                 if (iteration - 1) == debug_from:
                     pipe.debug = True
 
-                if dataset.use_gsplat:
-                    render_pkg = render_gsplat(viewpoint_cam, gaussians, background, use_trained_exp=False, absgrad=dataset.use_absgrad, with_depth=False)
-                else:
-                    render_pkg = render_coarse(viewpoint_cam, gaussians, pipe, background, indices = indices)
+                render_pkg = render_gsplat(viewpoint_cam, gaussians, background, use_trained_exp=False, absgrad=dataset.use_absgrad, with_depth=False)
                 image, visibility_filter, radii = render_pkg["render"], render_pkg["visibility_filter"], render_pkg["radii"]
 
                 # Loss
@@ -118,12 +115,13 @@ def training(dataset, opt, pipe, saving_iterations, checkpoint_iterations, check
 
                     if iteration < opt.iterations:
                         if gaussians.road_points > 0: # fix road points
+                            # fix xyz, rotation and scaling for sky and road(only optimize color and opacity)
                             gaussians._xyz.grad[:gaussians.road_points, :] = 0
                             gaussians._rotation.grad[:gaussians.road_points, :] = 0
-                            gaussians._features_dc.grad[:gaussians.road_points, :, :] = 0
-                            gaussians._features_rest.grad[:gaussians.road_points, :, :] = 0
-                            gaussians._opacity.grad[:gaussians.road_points, :] = 0
                             gaussians._scaling.grad[:gaussians.road_points, :] = 0
+                            #gaussians._features_dc.grad[:gaussians.road_points, :, :] = 0
+                            #gaussians._features_rest.grad[:gaussians.road_points, :, :] = 0
+                            #gaussians._opacity.grad[:gaussians.road_points, :] = 0
                             
                         fixedpoints = gaussians.road_points + gaussians.skybox_points
                         gaussians._scaling.grad[:fixedpoints,:] = 0
@@ -178,6 +176,7 @@ if __name__ == "__main__":
     args.save_iterations.append(args.iterations)
     
     print("Optimizing " + args.model_path)
+    os.makedirs(args.model_path, exist_ok = True)
     # training with road model if exists
     roadpoints_3dgs_file = os.path.join(args.model_path, "../road_model/point_cloud/iteration_30000/point_cloud.ply")
     if os.path.exists(roadpoints_3dgs_file):

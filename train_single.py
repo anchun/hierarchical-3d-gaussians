@@ -14,7 +14,7 @@ import torch
 import random
 from utils.loss_utils import l1_loss, ssim
 from utils.image_utils import psnr
-from gaussian_renderer import render, render_gsplat
+from gaussian_renderer import render_gsplat
 import sys
 from scene import Scene, GaussianModel
 from utils.general_utils import safe_state, get_expon_lr_func
@@ -218,10 +218,13 @@ def training(dataset, opt, pipe, args):
                         gaussians.exposure_optimizer.zero_grad(set_to_none = True)
 
                         if gaussians._xyz.grad != None and gaussians.skybox_locked:
-                            # fix xyz, rotation and scaling for sky and road(only optimize color and opacity)
+                            # fixed for road and sky points
                             gaussians._xyz.grad[:gaussians.skybox_points, :] = 0
                             gaussians._rotation.grad[:gaussians.skybox_points, :] = 0
                             gaussians._scaling.grad[:gaussians.skybox_points, :] = 0
+                            gaussians._features_dc.grad[:gaussians.skybox_points, :, :] = 0
+                            gaussians._features_rest.grad[:gaussians.skybox_points, :, :] = 0
+                            gaussians._opacity.grad[:gaussians.skybox_points, :] = 0
 
                         if gaussians._opacity.grad != None:
                             relevant = (gaussians._opacity.grad.flatten() != 0).nonzero()
@@ -284,6 +287,7 @@ if __name__ == "__main__":
     print("Iterations: ", args.iterations, "Densify iterations: ", args.densify_until_iter, "degree SH: ", args.sh_degree)
     
     print("Optimizing " + args.model_path)
+    os.makedirs(args.model_path, exist_ok = True)
     # training with road model if exists
     roadpoints_3dgs_file = os.path.join(args.model_path, "../../road_model/point_cloud/iteration_30000/point_cloud.ply")
     if os.path.exists(roadpoints_3dgs_file):

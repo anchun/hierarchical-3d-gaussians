@@ -4,7 +4,7 @@ import random
 from utils.loss_utils import l1_loss, ssim
 from utils.image_utils import psnr
 from utils.mesh_utils import GaussianExtractor, post_process_mesh
-from gaussian_renderer import render, render_gsplat, render_gsplat2d
+from gaussian_renderer import render_gsplat, render_gsplat2d
 import sys
 from scene import Scene, GaussianModel
 from functools import partial
